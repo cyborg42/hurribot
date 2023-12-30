@@ -5,7 +5,7 @@ use std::{
 };
 use tracing::{error, info, warn};
 
-/// 手续费（maker为0.02%，taker为0.05%）
+/// 手续费率（maker为0.02%，taker为0.05%，随VIP等级变化）
 const HANDLING_FEE_RATE_MAKER: f64 = 0.0002;
 const HANDLING_FEE_RATE_TAKER: f64 = 0.0005;
 
@@ -16,32 +16,33 @@ fn main() {
         .format("hurribot_%Y-%m-%d-%H:%M:%S")
         .to_string();
     let _logger_guard = init_log(&log_name);
-    let chart = CandleChart::read_from_csv("./data/BTCUSDT_1h.csv", 3600);
+    let chart = CandleChart::read_from_csv("./data/BINANCE_BTCUSDT, 60.csv", 3600);
+
     let total_capital = Arc::new(Mutex::new(1000.));
     // chart.candles = chart.candles.into_iter().filter(|c|c.time > 1678996800).collect();
     let ratio = 1.;
     let leverage = 10.;
-    // 理论上止损比例及其他参数固定的情况下，ratio * leverage相等时，收益率和风险相同
+    // 理论上其他参数固定的情况下，ratio * leverage / (1. + leverage * handling_fee_rate) 相等时，收益率和风险一致
     let mut strategy = GeoStrategy::new(
         leverage,
         ratio,
         3600,
         10.,
-        0.998,
-        1.001,
+        0.95,
+        1.002,
         total_capital.clone(),
     );
 
     for (i, candle) in chart.candles.iter().enumerate() {
         if i % 100 == 0 {
-            info!("{i}: current value: {}", strategy.value());
+            info!("round: {i}, price: {}, current value: {}, current stake: {}", candle.close, strategy.value(), strategy.stake);
         }
         strategy.update(candle);
     }
     strategy.close(chart.candles.last().unwrap().close);
     let ret = strategy.capital / strategy.cost;
     info!(
-        "ratio: {ratio}, leverage: {leverage}, add money: {}, captial: {}, return rate: {}, count: {}",
+        "ratio: {ratio}, leverage: {leverage}, add money: {}, captial: {}, return rate: {}, open count: {}",
         strategy.cost, strategy.capital, ret, strategy.open_count
     );
 }
@@ -57,13 +58,15 @@ struct GeoStrategy {
     /// 若总资金不足则补充到此值
     supply: f64,
     /// 止损比例
-    stop_loss_percentage: f64,
+    stop_loss_ratio: f64,
     /// 超过间隔后按该比例止盈
-    take_profit_percentage: f64,
+    take_profit_ratio: f64,
     /// 当前持仓
     position: Option<Contract>,
     /// 当前资金
     capital: f64,
+    /// 后备资金
+    stake: f64,
     /// 总成本（补充资金总值）
     cost: f64,
     /// 开单次数
@@ -80,14 +83,14 @@ impl GeoStrategy {
         ratio: f64,
         interval: i64,
         supply: f64,
-        stop_loss_percentage: f64,
-        take_profit_percentage: f64,
+        stop_loss_ratio: f64,
+        take_profit_ratio: f64,
         total_capital: Arc<Mutex<f64>>,
     ) -> Self {
-        if take_profit_percentage < 1. + HANDLING_FEE_RATE_MAKER {
+        if take_profit_ratio < 1. + HANDLING_FEE_RATE_MAKER * 2. {
             warn!(
-                "take profit percentage is too low, can't take profit unless it is greater than {}",
-                1. + HANDLING_FEE_RATE_MAKER
+                "take profit ratio is too low, can't take profit unless it is greater than {}",
+                1. + HANDLING_FEE_RATE_MAKER * 2.
             );
         }
         Self {
@@ -95,10 +98,11 @@ impl GeoStrategy {
             interval,
             ratio,
             supply,
-            stop_loss_percentage,
-            take_profit_percentage,
+            stop_loss_ratio,
+            take_profit_ratio,
             position: None,
             capital: 0.,
+            stake: 0.,
             cost: 0.,
             open_count: 0,
             last_time: -10000000000,
@@ -111,7 +115,7 @@ impl GeoStrategy {
                 // 止损或强制平仓
                 self.capital += r;
             } else if contract.open_time + self.interval <= candle.time
-                && candle.close > contract.entry_price * self.take_profit_percentage
+                && candle.close > contract.entry_price * self.take_profit_ratio
             {
                 // 超过间隔后按比例止盈，否则继续持有该仓位
                 self.capital += contract.close(candle.close);
@@ -125,8 +129,10 @@ impl GeoStrategy {
         }
         if self.capital < self.supply {
             let cost = self.supply - self.capital;
-            if let Ok(mut total_capital) = self.total_capital.lock() {
-                if *total_capital < cost {
+            if self.stake < cost {
+                let supplement = cost - self.stake;
+                let mut total_capital = self.total_capital.lock().unwrap();
+                if *total_capital < supplement {
                     error!(
                         "total capital = {} is not enough, need {}",
                         *total_capital, cost
@@ -136,17 +142,19 @@ impl GeoStrategy {
                         *total_capital, cost
                     );
                 }
-                *total_capital -= cost;
-                self.cost += cost;
-                self.capital = self.supply;
+                *total_capital -= supplement;
+                self.stake = cost;
+                self.cost += supplement;
             }
+            self.stake -= cost;
+            self.capital = self.supply;
         }
         self.position = Some(Contract::open(
             candle.close,
             self.capital * self.ratio,
             self.leverage,
             candle.time,
-            Some(self.stop_loss_percentage * candle.close),
+            Some(self.stop_loss_ratio * candle.close),
         ));
         self.capital -= self.capital * self.ratio;
         self.last_time = candle.time;
@@ -159,9 +167,9 @@ impl GeoStrategy {
     }
     fn value(&self) -> f64 {
         if let Some(offer) = &self.position {
-            offer.margin + self.capital
+            offer.margin + self.capital + self.stake
         } else {
-            self.capital
+            self.capital + self.stake
         }
     }
 }
@@ -176,7 +184,7 @@ struct Contract {
     open_time: i64,
     /// 强平价格（维持保证金 = 0.4% * 初始名义价值）
     liq_price: f64,
-    /// 盈亏平衡价格
+    /// 盈亏平衡价格（计算了开仓和平仓的手续费，币安计算了开仓手续费）
     break_even_price: f64,
     /// 合约数量（合约数量 * 现价 = 名义价值）
     amount: f64,
@@ -193,12 +201,12 @@ impl Contract {
         open_time: i64,
         mut stop_loss: Option<f64>,
     ) -> Self {
-        // 初始保证金 + 手续费消耗 = 提供资金，手续费消耗 = 初始保证金 * 杠杆 * 手续费率
+        // 初始保证金 + 手续费消耗 = 提供资金；手续费消耗 = 初始保证金 * 杠杆 * 手续费率
         // 由上面两个公式可得：初始保证金 = 提供资金 / (1 + 杠杆 * 手续费率)
         let margin = offered_balance / (1. + leverage * HANDLING_FEE_RATE_MAKER);
         let liq_price = entry_price * (1. - 1. / leverage) + entry_price * 0.004;
         let amount = margin * leverage / entry_price;
-        let break_even_price = (1. + HANDLING_FEE_RATE_MAKER) * entry_price;
+        let break_even_price = (1. + HANDLING_FEE_RATE_MAKER * 2.) * entry_price;
         if let Some(sl) = stop_loss {
             if sl < liq_price {
                 error!("stop loss price is lower than liquidation price");
@@ -216,7 +224,7 @@ impl Contract {
             stop_loss,
         }
     }
-    // 止损平仓或强制平仓，强制平仓有15%的强平费用，所以尽量确保不要强平
+    /// 止损平仓或强制平仓，强制平仓有15%的强平费用，所以尽量确保不要强平
     fn liquidate(&self, price: f64) -> Option<f64> {
         if let Some(stop_loss) = self.stop_loss {
             if price < stop_loss {
@@ -234,6 +242,7 @@ impl Contract {
         }
         self._cover(price)
     }
+    /// 理想状态是只做挂单且不会被穿透，但实盘会有这两种风险
     fn _cover(&self, price: f64) -> f64 {
         self.amount * (price - self.entry_price) + self.margin
             - self.amount * price * HANDLING_FEE_RATE_MAKER
@@ -255,17 +264,18 @@ impl CandleChart {
         }
     }
     fn read_from_csv(file: &str, interval: i64) -> Self {
+        info!("read from csv: {}", file);
         let file = File::open(file).unwrap();
         let mut csv = csv::Reader::from_reader(file);
         let mut chart = Self::new(interval);
         for d in csv.records() {
             let d = d.unwrap();
             let time = d.get(0).unwrap().parse::<i64>().unwrap();
-            let open = d.get(3).unwrap().parse::<f64>().unwrap();
-            let high = d.get(4).unwrap().parse::<f64>().unwrap();
-            let low = d.get(5).unwrap().parse::<f64>().unwrap();
-            let close = d.get(6).unwrap().parse::<f64>().unwrap();
-            let volume = d.get(8).unwrap().parse::<f64>().unwrap();
+            let open = d.get(1).unwrap().parse::<f64>().unwrap();
+            let high = d.get(2).unwrap().parse::<f64>().unwrap();
+            let low = d.get(3).unwrap().parse::<f64>().unwrap();
+            let close = d.get(4).unwrap().parse::<f64>().unwrap();
+            let volume = d.get(5).unwrap().parse::<f64>().unwrap();
             chart.candles.push(CandleData {
                 open,
                 high,
@@ -275,7 +285,6 @@ impl CandleChart {
                 time,
             });
         }
-        chart.candles.reverse();
         chart
     }
 }
@@ -328,7 +337,5 @@ fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-
-    info!("logger started");
     _guard
 }
