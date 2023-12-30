@@ -1,6 +1,9 @@
-use std::fs::File;
+#![allow(dead_code)]
+use std::{
+    fs::File,
+    sync::{Arc, Mutex},
+};
 use tracing::{error, info, warn};
-use tracing_appender::non_blocking::WorkerGuard;
 
 /// 手续费（maker为0.02%，taker为0.05%）
 const HANDLING_FEE_RATE_MAKER: f64 = 0.0002;
@@ -9,13 +12,25 @@ const HANDLING_FEE_RATE_TAKER: f64 = 0.0005;
 // TODO: 币安会在0:00 8:00 16:00进行资金费率结算，若需支付资金费率则提前一分钟平仓并推迟10s建仓，若需收取资金费率则推迟一分钟平仓+建仓
 
 fn main() {
-    let log_name = format!("{}", chrono::Local::now().format("hurribot_%Y-%m-%d-%H:%M:%S"));
+    let log_name = chrono::Local::now()
+        .format("hurribot_%Y-%m-%d-%H:%M:%S")
+        .to_string();
     let _logger_guard = init_log(&log_name);
     let chart = CandleChart::read_from_csv("./data/BTCUSDT_1h.csv", 3600);
+    let total_capital = Arc::new(Mutex::new(1000.));
     // chart.candles = chart.candles.into_iter().filter(|c|c.time > 1678996800).collect();
     let ratio = 1.;
+    let leverage = 10.;
     // 理论上止损比例及其他参数固定的情况下，ratio * leverage相等时，收益率和风险相同
-    let mut strategy = GeoStrategy::new(10., ratio, 3600, 10., 0.998, 1.001);
+    let mut strategy = GeoStrategy::new(
+        leverage,
+        ratio,
+        3600,
+        10.,
+        0.998,
+        1.001,
+        total_capital.clone(),
+    );
 
     for (i, candle) in chart.candles.iter().enumerate() {
         if i % 100 == 0 {
@@ -26,7 +41,7 @@ fn main() {
     strategy.close(chart.candles.last().unwrap().close);
     let ret = strategy.capital / strategy.cost;
     info!(
-        "ratio: {ratio}, add money: {}, captial: {}, return rate: {}, count: {}",
+        "ratio: {ratio}, leverage: {leverage}, add money: {}, captial: {}, return rate: {}, count: {}",
         strategy.cost, strategy.capital, ret, strategy.open_count
     );
 }
@@ -55,6 +70,8 @@ struct GeoStrategy {
     open_count: i64,
     /// 上次开单时间
     last_time: i64,
+    /// 总资金
+    total_capital: Arc<Mutex<f64>>,
 }
 
 impl GeoStrategy {
@@ -65,6 +82,7 @@ impl GeoStrategy {
         supply: f64,
         stop_loss_percentage: f64,
         take_profit_percentage: f64,
+        total_capital: Arc<Mutex<f64>>,
     ) -> Self {
         if take_profit_percentage < 1. + HANDLING_FEE_RATE_MAKER {
             warn!(
@@ -84,6 +102,7 @@ impl GeoStrategy {
             cost: 0.,
             open_count: 0,
             last_time: -10000000000,
+            total_capital,
         }
     }
     fn update(&mut self, candle: &CandleData) {
@@ -104,12 +123,24 @@ impl GeoStrategy {
             // 只有空仓且超过间隔后才开仓
             return;
         }
-        self.last_time = candle.time;
         if self.capital < self.supply {
-            self.cost += self.supply - self.capital;
-            self.capital = self.supply;
+            let cost = self.supply - self.capital;
+            if let Ok(mut total_capital) = self.total_capital.lock() {
+                if *total_capital < cost {
+                    error!(
+                        "total capital = {} is not enough, need {}",
+                        *total_capital, cost
+                    );
+                    panic!(
+                        "total capital = {} is not enough, need {}",
+                        *total_capital, cost
+                    );
+                }
+                *total_capital -= cost;
+                self.cost += cost;
+                self.capital = self.supply;
+            }
         }
-        self.open_count += 1;
         self.position = Some(Contract::open(
             candle.close,
             self.capital * self.ratio,
@@ -118,6 +149,8 @@ impl GeoStrategy {
             Some(self.stop_loss_percentage * candle.close),
         ));
         self.capital -= self.capital * self.ratio;
+        self.last_time = candle.time;
+        self.open_count += 1;
     }
     fn close(&mut self, price: f64) {
         if let Some(offer) = self.position.take() {
@@ -141,7 +174,7 @@ struct Contract {
     entry_price: f64,
     /// 开仓时间
     open_time: i64,
-    /// 强平价格（维持保证金 = 0.4% * 名义价值）
+    /// 强平价格（维持保证金 = 0.4% * 初始名义价值）
     liq_price: f64,
     /// 盈亏平衡价格
     break_even_price: f64,
@@ -163,7 +196,7 @@ impl Contract {
         // 初始保证金 + 手续费消耗 = 提供资金，手续费消耗 = 初始保证金 * 杠杆 * 手续费率
         // 由上面两个公式可得：初始保证金 = 提供资金 / (1 + 杠杆 * 手续费率)
         let margin = offered_balance / (1. + leverage * HANDLING_FEE_RATE_MAKER);
-        let liq_price = entry_price * (1. - 0.6 / leverage);
+        let liq_price = entry_price * (1. - 1. / leverage) + entry_price * 0.004;
         let amount = margin * leverage / entry_price;
         let break_even_price = (1. + HANDLING_FEE_RATE_MAKER) * entry_price;
         if let Some(sl) = stop_loss {
@@ -202,7 +235,8 @@ impl Contract {
         self._cover(price)
     }
     fn _cover(&self, price: f64) -> f64 {
-        self.amount * (price - self.entry_price) + self.margin - self.amount * price * HANDLING_FEE_RATE_MAKER
+        self.amount * (price - self.entry_price) + self.margin
+            - self.amount * price * HANDLING_FEE_RATE_MAKER
     }
 }
 
@@ -263,7 +297,7 @@ fn offer_test() {
     println!("{:?}", offer.liquidate(9.));
 }
 
-fn init_log(file_name: &str) -> WorkerGuard {
+fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard {
     use tracing::Level;
     use tracing_subscriber::fmt::format::FmtSpan;
     use tracing_subscriber::fmt::time::FormatTime;
