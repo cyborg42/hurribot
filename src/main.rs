@@ -20,7 +20,7 @@ fn main() {
         )
         .unwrap();
     let _logger_guard = init_log(&log_name);
-    let chart = CandleChart::read_from_csv("./data/BTCUSDT", 60);
+    let chart = CandleChart::read_from_csv("./data/BTCUSDT", Duration::minutes(1));
     let total_capital = Arc::new(Mutex::new(1000000.));
     let ratio = 1.;
     let leverage = 10.;

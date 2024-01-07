@@ -1,17 +1,17 @@
 use std::{fs::File, path::Path};
 
-use time::{OffsetDateTime, PrimitiveDateTime, Time};
+use time::{OffsetDateTime, PrimitiveDateTime, Time, Duration};
 use tracing::{error, info, warn};
 
 #[derive(Debug)]
 pub struct CandleChart {
     /// k线间隔（秒）
-    interval: i64,
+    interval: Duration,
     pub candles: Vec<CandleData>,
 }
 
 impl CandleChart {
-    pub fn new(interval: i64) -> Self {
+    pub fn new(interval: Duration) -> Self {
         Self {
             interval,
             candles: vec![],
@@ -29,7 +29,7 @@ impl CandleChart {
     /// taker_buy_volume        在此期间吃单方买入的基础币数量
     /// taker_buy_quote_volume  在此期间吃单方买入的报价币数量
     /// ignore                  忽略
-    pub fn read_from_csv(path: &str, interval: i64) -> Self {
+    pub fn read_from_csv(path: &str, interval: Duration) -> Self {
         fn read_from_csv_file(path: &Path) -> Vec<CandleData> {
             let file = File::open(path).unwrap();
             let mut csv = csv::Reader::from_reader(file);

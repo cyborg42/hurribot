@@ -4,7 +4,7 @@ use crate::{
     candle_chart::CandleData,
     contract::{Contract, HANDLING_FEE_RATE_MAKER},
 };
-use time::{OffsetDateTime, Duration};
+use time::{Duration, OffsetDateTime};
 use tracing::{error, info, warn};
 
 use super::Strategy;
@@ -82,7 +82,11 @@ impl GeoStrategy {
 impl Strategy for GeoStrategy {
     fn update(&mut self, candle: &CandleData) {
         if let Some(contract) = self.position.take() {
-            if let Some(r) = contract.liquidate(candle.low) {
+            if let Some(r) = contract.liquidate(if self.is_bull {
+                candle.low
+            } else {
+                candle.high
+            }) {
                 // 止损或强制平仓
                 self.capital += r;
             } else if contract.open_time + self.interval <= candle.close_time
@@ -136,7 +140,7 @@ impl Strategy for GeoStrategy {
         self.last_time = candle.close_time;
         self.open_count += 1;
     }
-    fn close(&mut self, price: f64) -> f64{
+    fn close(&mut self, price: f64) -> f64 {
         if let Some(offer) = self.position.take() {
             self.capital += offer.close(price);
         }
