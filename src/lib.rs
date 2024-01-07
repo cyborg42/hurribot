@@ -1,3 +1,5 @@
+use time::{OffsetDateTime, UtcOffset};
+
 pub mod strategy;
 pub mod candle_chart;
 pub mod contract;
@@ -15,8 +17,9 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
             &self,
             w: &mut tracing_subscriber::fmt::format::Writer<'_>,
         ) -> std::fmt::Result {
-            let now = chrono::Local::now();
-            write!(w, "{}", now.format("%Y-%m-%d %H:%M:%S"))
+            let now = local_now();
+            let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+            write!(w,"{}",now.format(&format).unwrap())
         }
     }
     let file_appender = tracing_appender::rolling::daily("./logs", file_name);
@@ -35,4 +38,8 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     _guard
+}
+
+pub fn local_now() -> OffsetDateTime {
+    time::OffsetDateTime::now_utc().to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
 }

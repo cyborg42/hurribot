@@ -1,5 +1,6 @@
 use std::{fs::File, path::Path};
 
+use time::{OffsetDateTime, PrimitiveDateTime, Time};
 use tracing::{error, info, warn};
 
 #[derive(Debug)]
@@ -29,6 +30,34 @@ impl CandleChart {
     /// taker_buy_quote_volume  在此期间吃单方买入的报价币数量
     /// ignore                  忽略
     pub fn read_from_csv(path: &str, interval: i64) -> Self {
+        fn read_from_csv_file(path: &Path) -> Vec<CandleData> {
+            let file = File::open(path).unwrap();
+            let mut csv = csv::Reader::from_reader(file);
+            let mut candles = vec![];
+
+            for d in csv.records() {
+                let d = d.unwrap();
+                let open_nano = d.get(0).unwrap().parse::<i64>().unwrap() as i128 * 1_000_000;
+                let close_nano = d.get(6).unwrap().parse::<i64>().unwrap() as i128 * 1_000_000;
+                let open_time = OffsetDateTime::from_unix_timestamp_nanos(open_nano).unwrap();
+                let close_time = OffsetDateTime::from_unix_timestamp_nanos(close_nano).unwrap();
+                let open = d.get(1).unwrap().parse::<f64>().unwrap();
+                let high = d.get(2).unwrap().parse::<f64>().unwrap();
+                let low = d.get(3).unwrap().parse::<f64>().unwrap();
+                let close = d.get(4).unwrap().parse::<f64>().unwrap();
+                let volume = d.get(5).unwrap().parse::<f64>().unwrap();
+                candles.push(CandleData {
+                    open,
+                    high,
+                    low,
+                    close,
+                    volume,
+                    open_time,
+                    close_time,
+                });
+            }
+            candles
+        }
         info!("read from csv: {}", path);
         let path = Path::new(path);
         let mut chart = Self::new(interval);
@@ -38,49 +67,13 @@ impl CandleChart {
                 let path = entry.path();
 
                 if path.is_file() {
-                    let file = File::open(path).unwrap();
-                    let mut csv = csv::Reader::from_reader(file);
-
-                    for d in csv.records() {
-                        let d = d.unwrap();
-                        let time = d.get(0).unwrap().parse::<i64>().unwrap() / 1000;
-                        let open = d.get(1).unwrap().parse::<f64>().unwrap();
-                        let high = d.get(2).unwrap().parse::<f64>().unwrap();
-                        let low = d.get(3).unwrap().parse::<f64>().unwrap();
-                        let close = d.get(4).unwrap().parse::<f64>().unwrap();
-                        let volume = d.get(5).unwrap().parse::<f64>().unwrap();
-                        chart.candles.push(CandleData {
-                            open,
-                            high,
-                            low,
-                            close,
-                            volume,
-                            time,
-                        });
-                    }
+                    chart.candles.append(&mut read_from_csv_file(&path));
                 }
             }
         } else if path.is_file() {
-            let file = File::open(path).unwrap();
-            let mut csv = csv::Reader::from_reader(file);
-
-            for d in csv.records() {
-                let d = d.unwrap();
-                let time = d.get(0).unwrap().parse::<i64>().unwrap() / 1000;
-                let open = d.get(1).unwrap().parse::<f64>().unwrap();
-                let high = d.get(2).unwrap().parse::<f64>().unwrap();
-                let low = d.get(3).unwrap().parse::<f64>().unwrap();
-                let close = d.get(4).unwrap().parse::<f64>().unwrap();
-                let volume = d.get(5).unwrap().parse::<f64>().unwrap();
-                chart.candles.push(CandleData {
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume,
-                    time,
-                });
-            }
+            chart.candles = read_from_csv_file(path);
+        } else {
+            panic!("invalid path: {}", path.display());
         }
 
         chart.candles.sort();
@@ -95,12 +88,13 @@ pub struct CandleData {
     pub high: f64,
     pub low: f64,
     pub volume: f64,
-    pub time: i64,
+    pub open_time: OffsetDateTime,
+    pub close_time: OffsetDateTime,
 }
 
 impl Ord for CandleData {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.time.cmp(&other.time)
+        self.close_time.cmp(&other.close_time)
     }
 }
 
@@ -112,8 +106,15 @@ impl PartialOrd for CandleData {
 
 impl PartialEq for CandleData {
     fn eq(&self, other: &Self) -> bool {
-        self.time == other.time
+        self.close_time == other.close_time
     }
 }
 
 impl Eq for CandleData {}
+
+#[test]
+fn candle_test() {
+    let close_time_nano = 1672531200000 as i128 * 1000_000;
+    let close_time = OffsetDateTime::from_unix_timestamp_nanos(close_time_nano).unwrap();
+    dbg!(close_time);
+}
