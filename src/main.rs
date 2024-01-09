@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_imports)]
 use hurribot::{
     candle_chart::CandleChart,
     init_log, local_now,

@@ -15,7 +15,18 @@ pub struct RollOnceStratege {
     capital: f64,
     config: RollConfig,
     contract: Option<Contract>,
-    success: bool,
+    level: usize,
+    pub max_value: f64,
+    pub best_price: f64,
+    pub status: RollOnceStatus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RollOnceStatus {
+    Processing,
+    Successed,
+    Failed,
+    Aborted,
 }
 
 impl RollOnceStratege {
@@ -25,74 +36,106 @@ impl RollOnceStratege {
             capital,
             config,
             contract: None,
-            success: true,
-        }
-    }
-    fn status(&self) -> Option<(usize, f64)> {
-        if self.success {
-            Some((self.config.index, self.value()))
-        } else {
-            None
+            level: 0,
+            max_value: 0.,
+            best_price: 0.,
+            status: RollOnceStatus::Processing,
         }
     }
 }
 
 impl Strategy for RollOnceStratege {
     fn update(&mut self, candle: &CandleData) {
-        if !self.success {
+        if self.status != RollOnceStatus::Processing {
             return;
         }
         if let Some(contract) = self.contract.take() {
+            let (_leverage, take_profit, max_draw) = self.config.0[self.level - 1];
             if let Some(r) = contract.liquidate(if self.is_bull {
                 candle.low
             } else {
                 candle.high
             }) {
                 self.capital += r;
-                self.success = false;
+                self.status = RollOnceStatus::Failed;
+                info!(
+                    "roll once failed: time: {}, price: {}, level: {}, value: {}",
+                    candle.close_time,
+                    candle.close,
+                    self.level,
+                    self.value()
+                );
                 return;
             }
-            if (self.is_bull
-                && candle.close
-                    > contract.entry_price * (1. + self.config.config[self.config.index - 1].1))
-                || (!self.is_bull
-                    && candle.close
-                        < contract.entry_price * (1. - self.config.config[self.config.index - 1].1))
+            if (self.is_bull && candle.close > contract.entry_price * (1. + take_profit))
+                || (!self.is_bull && candle.close < contract.entry_price * (1. - take_profit))
             {
                 self.capital += contract.close(candle.close);
             } else {
+                let value_high = contract.close(candle.high);
+                let value_low = contract.close(candle.low);
+                if self.max_value < value_high {
+                    self.max_value = value_high;
+                    self.best_price = candle.high;
+                }
+                if self.max_value < value_low {
+                    self.max_value = value_low;
+                    self.best_price = candle.low;
+                }
+                if let Some(max_draw) = max_draw {
+                    if contract.close(candle.close) < self.max_value * (1. - max_draw) {
+                        self.capital += contract.close(candle.close);
+                        self.status = RollOnceStatus::Successed;
+                        info!(
+                            "roll once successed: time: {}, price: {}, level:, {}, value: {}",
+                            candle.close_time,
+                            candle.close,
+                            self.level,
+                            self.value()
+                        );
+                        return;
+                    }
+                }
                 self.contract = Some(contract);
             }
         }
         if self.contract.is_some() {
             return;
         }
-        if self.config.index >= self.config.config.len() {
+        if self.level >= self.config.0.len() {
             return;
         }
-        let leverage = self.config.config[self.config.index].0;
+        let leverage = self.config.0[self.level].0;
+        let stop_loss = if self.is_bull {
+            candle.close * (1. - 0.99 / leverage) + candle.close * 0.004
+        } else {
+            candle.close * (1. + 0.99 / leverage) - candle.close * 0.004
+        };
         let contract = Contract::open(
             self.is_bull,
             candle.close,
             self.capital,
             leverage,
             candle.close_time,
-            None,
+            Some(stop_loss),
         );
         self.capital = 0.;
         self.contract = Some(contract);
-        self.config.index += 1;
+        self.level += 1;
         info!(
-            "roll once: time: {}, price: {}, status: {:?}",
+            "roll once open new: time: {}, price: {}, level: {}, leverage: {}, value: {}",
             candle.close_time,
             candle.close,
-            self.status()
+            self.level,
+            leverage,
+            self.value()
         );
     }
     fn close(&mut self, price: f64) -> f64 {
         if let Some(contract) = &self.contract.take() {
             self.capital += contract.close(price);
         }
+        self.status = RollOnceStatus::Aborted;
         self.capital
     }
     fn value(&self) -> f64 {
@@ -106,39 +149,30 @@ impl Strategy for RollOnceStratege {
 }
 
 type Leverage = f64;
-type Increase = f64;
+type TakeProfit = f64;
+type MaxDraw = Option<f64>;
 #[derive(Debug, Clone)]
-pub struct RollConfig {
-    index: usize,
-
-    config: Vec<(Leverage, Increase)>,
-}
+struct RollConfig(Vec<(Leverage, TakeProfit, MaxDraw)>);
 
 impl RollConfig {
-    pub fn new(config: Vec<(Leverage, Increase)>) -> Self {
-        Self {
-            index: 0,
-            config,
-        }
+    pub fn new(config: Vec<(Leverage, TakeProfit, MaxDraw)>) -> Self {
+        Self(config)
     }
 }
 impl Default for RollConfig {
     fn default() -> Self {
         let config = vec![
-            (25., 0.04),
-            (20., 0.05),
-            (20., 0.05),
-            (15., 0.07),
-            (10., 0.1),
-            (5., 0.2),
-            (3., 0.35),
-            (2., 0.5),
-            (1., 1.),
-            (0.5, 2.),
-            (0.2, 5.),
-            (0.1, 10.),
+            (25., 0.04, None),
+            (20., 0.05, None),
+            (20., 0.05, None),
+            (15., 0.07, None),
+            (10., 0.1, None),
+            (5., 0.2, None),
+            (3., 0.35, None),
+            (2., 0.5, Some(0.6)),
+            (1., 1., Some(0.2)),
         ];
-        Self::new(config)
+        Self(config)
     }
 }
 
@@ -166,20 +200,23 @@ fn roll_test() {
                 Date::from_calendar_date(2020, time::Month::December, 16).unwrap(),
                 Time::from_hms(0, 0, 0).unwrap(),
             )
-            && c.close_time
-                < OffsetDateTime::new_utc(
-                    Date::from_calendar_date(2021, time::Month::March, 13).unwrap(),
-                    Time::from_hms(0, 0, 0).unwrap(),
-                )
     });
     let mut strategy = RollOnceStratege::new(true, 100., RollConfig::default());
     for c in chart.candles.iter() {
         strategy.update(&c);
+        if strategy.status != RollOnceStatus::Processing {
+            break;
+        }
     }
-    strategy.close(chart.candles.last().unwrap().close);
+    if strategy.status == RollOnceStatus::Processing {
+        strategy.close(chart.candles.last().unwrap().close);
+    }
     info!(
-        "result: {:?}, return rate: {}",
-        strategy.status(),
-        strategy.value() / 100.
+        "result: {:?}, level: {}, return rate: {}, max return rate: {}, best price: {}",
+        strategy.status,
+        strategy.level,
+        strategy.value() / 100.,
+        strategy.max_value / 100.,
+        strategy.best_price
     );
 }

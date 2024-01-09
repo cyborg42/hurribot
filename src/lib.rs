@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
 use time::{OffsetDateTime, UtcOffset};
 
 pub mod strategy;
