@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use super::Strategy;
 use crate::{
     candle_chart::CandleData,
@@ -10,7 +12,7 @@ use time::{
 use tracing::{error, info, warn};
 
 #[derive(Debug, Clone)]
-pub struct RollOnceStratege {
+pub struct RollOnceStrategy {
     is_bull: bool,
     capital: f64,
     config: RollConfig,
@@ -29,7 +31,7 @@ pub enum RollOnceStatus {
     Aborted,
 }
 
-impl RollOnceStratege {
+impl RollOnceStrategy {
     fn new(is_bull: bool, capital: f64, config: RollConfig) -> Self {
         Self {
             is_bull,
@@ -44,7 +46,7 @@ impl RollOnceStratege {
     }
 }
 
-impl Strategy for RollOnceStratege {
+impl Strategy for RollOnceStrategy {
     fn update(&mut self, candle: &CandleData) {
         if self.status != RollOnceStatus::Processing {
             return;
@@ -158,26 +160,76 @@ impl RollConfig {
     pub fn new(config: Vec<(Leverage, TakeProfit, MaxDraw)>) -> Self {
         Self(config)
     }
+    fn linear(k: f64, b: f64, max: f64, step: f64) -> Self {
+        let mut config = Vec::new();
+        let mut x = 1.;
+        while x < max {
+            config.push((x, 1., None));
+            x = x * k + b;
+        }
+        Self(config)
+    }
 }
+
 impl Default for RollConfig {
     fn default() -> Self {
         let config = vec![
-            (25., 0.04, None),
-            (20., 0.05, None),
-            (20., 0.05, None),
-            (15., 0.07, None),
-            (10., 0.1, None),
-            (5., 0.2, None),
-            (3., 0.35, None),
-            (2., 0.5, Some(0.6)),
-            (1., 1., Some(0.2)),
+            (25., 0.04, None),    // 4%     104%
+            (20., 0.05, None),    // 5%     109.2%
+            (20., 0.05, None),    // 5%     114.7%
+            (15., 0.67, None),    // 6.7%   122.3%
+            (10., 0.1, None),     // 10%    134.5%
+            (5., 0.2, None),      // 20%    161.4%
+            (3., 0.33, None),     // 33%    215.3%
+            (2., 0.5, Some(0.6)), // 50%    322.9%
+            (1., 1., Some(0.2)),  // 100%   645.7%
         ];
         Self(config)
     }
 }
 
+struct RollJudge {
+    cache: VecDeque<CandleData>,
+    max_length: usize,
+}
+
+impl RollJudge {
+    fn new(max_length: usize) -> Self {
+        let cache = VecDeque::with_capacity(max_length);
+        Self { cache, max_length }
+    }
+    fn update(&mut self, candle: &CandleData) {
+        if self.cache.len() >= self.max_length {
+            self.cache.pop_back();
+        }
+        self.cache.push_front(candle.clone());
+    }
+    fn max(&self, size: usize) -> CandleData {
+        self.cache
+            .iter()
+            .take(size)
+            .max_by(|x, y| x.high.partial_cmp(&y.high).unwrap())
+            .unwrap()
+            .clone()
+    }
+    fn min(&self, size: usize) -> CandleData {
+        self.cache
+            .iter()
+            .take(size)
+            .min_by(|x, y| x.low.partial_cmp(&y.low).unwrap())
+            .unwrap()
+            .clone()
+    }
+    fn is_max(&self, size: usize) -> bool {
+        self.cache[0] == self.max(size)
+    }
+    fn is_min(&self, size: usize) -> bool {
+        self.cache[0] == self.min(size)
+    }
+}
+
 #[test]
-fn roll_test() {
+fn roll_once_test() {
     use crate::candle_chart::CandleChart;
     use crate::init_log;
     use crate::local_now;
@@ -193,15 +245,15 @@ fn roll_test() {
         )
         .unwrap();
     let _logger_guard = init_log(&log_name);
-    let mut chart = CandleChart::read_from_csv("./data/BTCUSDT", Duration::minutes(1));
+    let mut chart = CandleChart::read_from_csv("./data/ETHUSDT", Duration::minutes(1));
     chart.candles.retain(|c| {
         c.close_time
             > OffsetDateTime::new_utc(
-                Date::from_calendar_date(2020, time::Month::December, 16).unwrap(),
+                Date::from_calendar_date(2021, time::Month::March, 26).unwrap(),
                 Time::from_hms(0, 0, 0).unwrap(),
             )
     });
-    let mut strategy = RollOnceStratege::new(true, 100., RollConfig::default());
+    let mut strategy = RollOnceStrategy::new(true, 100., RollConfig::default());
     for c in chart.candles.iter() {
         strategy.update(&c);
         if strategy.status != RollOnceStatus::Processing {
@@ -219,4 +271,115 @@ fn roll_test() {
         strategy.max_value / 100.,
         strategy.best_price
     );
+}
+
+#[test]
+fn roll_bull_finder() {
+    use crate::candle_chart::CandleChart;
+    use crate::init_log;
+    use crate::local_now;
+    use time::Duration;
+    use time::OffsetDateTime;
+
+    let log_name = local_now()
+        .format(
+            &time::format_description::parse(
+                "hurribot_finder_[year]-[month]-[day]T[hour]:[minute]:[second]",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let _logger_guard = init_log(&log_name);
+    let chart = CandleChart::read_from_csv("./data/PEOPLEUSDT", Duration::minutes(1));
+    let mut max = CandleData::default();
+    let mut entry = CandleData::default();
+    let mut start_new = true;
+    let mut good_set = Vec::new();
+    let mut max_draw: f64 = 0.;
+    let mut max_draw_before_max: f64 = 0.;
+    let mut max_draw_static = Vec::new();
+    let last = chart.candles.last().unwrap().clone();
+    for c in chart.candles {
+        if start_new {
+            entry = c.clone();
+            max = c.clone();
+            max_draw = 0.;
+            max_draw_before_max = 0.;
+            start_new = false;
+            max_draw_static = vec![];
+            continue;
+        }
+        if c.low < entry.low {
+            entry = c.clone();
+            max = c.clone();
+            max_draw = 0.;
+            max_draw_before_max = 0.;
+            max_draw_static = vec![];
+            continue;
+        }
+        max = if max.high < c.high {
+            if max_draw > max_draw_before_max {
+                max_draw_before_max = max_draw;
+                max_draw_static.push(((max.high / entry.low - 1.), max_draw));
+            }
+            c.clone()
+        } else {
+            max
+        };
+        max_draw = max_draw.max(1. - (c.low / max.high));
+        let increase = max.high / entry.low - 1.;
+        if max_draw > (increase * 0.5 + 0.1).min(0.5) {
+            if increase > 0.5 {
+                good_set.push((
+                    entry.clone(),
+                    c.clone(),
+                    max.clone(),
+                    max_draw_static.clone(),
+                ));
+            }
+            start_new = true;
+        }
+    }
+    if start_new == false && max.high / entry.low > 1.5 {
+        good_set.push((entry.clone(), last, max.clone(), max_draw_static.clone()));
+    }
+    for (entry, end, max, max_draw_static) in good_set.iter() {
+        let mut static_str = String::new();
+        for s in max_draw_static {
+            static_str.push_str(&format!(
+                "increase: {:8.2}%\t\tmax_draw: {:8.2}%\n",
+                s.0 * 100.,
+                s.1 * 100.
+            ));
+        }
+        info!(
+            "\nentry: {:#?}, \nend: {:#?}, \nmax: {:#?}, \nreturn rate: {}, \nmax_draw_static: \n{}",
+            entry,
+            end,
+            max,
+            end.close / entry.low,
+            static_str
+        );
+    }
+    info!("good set count: {}", good_set.len());
+    //create and open file result.csv, write max_raw_static to it
+    use std::fs::File;
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let mut file = OpenOptions::new().append(true).open("result.csv").unwrap();
+    for (_, _, _, max_draw_static) in good_set.iter() {
+        let mut static_str = String::new();
+        for s in max_draw_static {
+            static_str.push_str(&format!("{:.4}, {:.4}\n", s.0 * 100., s.1 * 100.));
+        }
+        file.write_all(static_str.as_bytes()).unwrap();
+    }
+}
+
+#[test]
+fn scatch() {
+    let mut price = 1.;
+    let steps = 1000;
+    let x = 2.0f64.powf(1. / steps as f64);
+    println!("x: {}", x.powf(1000.));
 }

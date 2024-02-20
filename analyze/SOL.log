@@ -1,0 +1,75 @@
+2024-01-17 15:53:17  INFO strategy::roll_strategy::roll_bull_finder hurribot::candle_chart: src/candle_chart.rs:61: read from csv: ./data/SOLUSDT
+2024-01-17 15:53:18  INFO strategy::roll_strategy::roll_bull_finder hurribot::strategy::roll_strategy: src/strategy/roll_strategy.rs:353: 
+entry: CandleData {
+    open: 9.72,
+    close: 9.72,
+    high: 9.73,
+    low: 9.69,
+    volume: 16851.76,
+    open_time: 2023-01-01 7:28:00.0 +00:00:00,
+    close_time: 2023-01-01 7:28:59.999 +00:00:00,
+}, 
+end: CandleData {
+    open: 13.72,
+    close: 13.41,
+    high: 14.08,
+    low: 13.41,
+    volume: 73790.49,
+    open_time: 2023-06-10 4:25:00.0 +00:00:00,
+    close_time: 2023-06-10 4:25:59.999 +00:00:00,
+}, 
+max: CandleData {
+    open: 26.94,
+    close: 27.06,
+    high: 27.12,
+    low: 26.92,
+    volume: 44000.75,
+    open_time: 2023-02-20 7:23:00.0 +00:00:00,
+    close_time: 2023-02-20 7:23:59.999 +00:00:00,
+}, 
+return rate: 1.3839009287925697, 
+max_draw_static: 
+increase:     0.52%		max_draw:     0.31%
+increase:     1.14%		max_draw:     1.02%
+increase:     2.99%		max_draw:     1.80%
+increase:     3.82%		max_draw:     2.49%
+increase:    23.84%		max_draw:    16.42%
+increase:   158.00%		max_draw:    18.64%
+increase:   176.57%		max_draw:    26.57%
+
+2024-01-17 15:53:18  INFO strategy::roll_strategy::roll_bull_finder hurribot::strategy::roll_strategy: src/strategy/roll_strategy.rs:353: 
+entry: CandleData {
+    open: 13.41,
+    close: 13.34,
+    high: 13.67,
+    low: 12.8,
+    volume: 103464.29,
+    open_time: 2023-06-10 4:26:00.0 +00:00:00,
+    close_time: 2023-06-10 4:26:59.999 +00:00:00,
+}, 
+end: CandleData {
+    open: 101.708,
+    close: 101.778,
+    high: 101.79,
+    low: 101.586,
+    volume: 10456.0,
+    open_time: 2023-12-31 23:59:00.0 +00:00:00,
+    close_time: 2023-12-31 23:59:59.999 +00:00:00,
+}, 
+max: CandleData {
+    open: 126.03,
+    close: 125.588,
+    high: 126.938,
+    low: 125.132,
+    volume: 348825.0,
+    open_time: 2023-12-25 18:10:00.0 +00:00:00,
+    close_time: 2023-12-25 18:10:59.999 +00:00:00,
+}, 
+return rate: 7.95140625, 
+max_draw_static: 
+increase:     7.50%		max_draw:     5.52%
+increase:    18.59%		max_draw:    11.79%
+increase:    26.41%		max_draw:    13.10%
+increase:   151.02%		max_draw:    46.06%
+
+2024-01-17 15:53:18  INFO strategy::roll_strategy::roll_bull_finder hurribot::strategy::roll_strategy: src/strategy/roll_strategy.rs:362: good set count: 2

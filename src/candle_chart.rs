@@ -81,7 +81,7 @@ impl CandleChart {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CandleData {
     pub open: f64,
     pub close: f64,
@@ -90,6 +90,20 @@ pub struct CandleData {
     pub volume: f64,
     pub open_time: OffsetDateTime,
     pub close_time: OffsetDateTime,
+}
+
+impl Default for CandleData {
+    fn default() -> Self {
+        Self {
+            open: 0.,
+            close: 0.,
+            high: 0.,
+            low: 0.,
+            volume: 0.,
+            open_time: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+            close_time: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+        }
+    }
 }
 
 impl Ord for CandleData {

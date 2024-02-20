@@ -22,26 +22,13 @@ fn rands() {
 
 #[test]
 fn t() {
-    let mut x = vec![1.; 3];
-    let mut rng = thread_rng();
-    x.append(&mut vec![-1.; 2]);
-    x.shuffle(&mut rng);
-    dbg!(&x);
-    for ratio in 1..100 {
-        let mut cap_log = 1.;
-        let ratio = ratio as f64 / 100.;
-        for r in x.iter() {
-            cap_log *= 1. + ratio * r;
-        }
-        dbg!(ratio, cap_log);
+    let mut c = 100.;
+    let step = 0.0001;
+    let mut price = 1.;
+    let leverage = 4.;
+    while price < 1.5 {
+        c *= step / price * leverage + 1.;
+        price += step;
     }
-}
-#[test]
-fn t2() {
-    let mut x = 0.;
-    for r in 0..100 {
-        let r = r as f64 / 100.;
-        x = (1. + r).powi(3) * (1. - r).powi(2);
-        dbg!(x);
-    }
+    println!("{}%", c);
 }

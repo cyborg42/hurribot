@@ -2,12 +2,12 @@
 #![allow(unused_imports)]
 use time::{OffsetDateTime, UtcOffset};
 
-pub mod strategy;
 pub mod candle_chart;
 pub mod contract;
-
+pub mod strategy;
 
 pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard {
+    let file_name = file_name.to_owned() + ".log";
     use tracing::Level;
     use tracing_subscriber::fmt::format::FmtSpan;
     use tracing_subscriber::fmt::time::FormatTime;
@@ -20,11 +20,14 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
             w: &mut tracing_subscriber::fmt::format::Writer<'_>,
         ) -> std::fmt::Result {
             let now = local_now();
-            let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-            write!(w,"{}",now.format(&format).unwrap())
+            let format =
+                time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
+                    .unwrap();
+            write!(w, "{}", now.format(&format).unwrap())
         }
     }
-    let file_appender = tracing_appender::rolling::daily("./logs", file_name);
+    let file_appender = tracing_appender::rolling::never("./logs", file_name);
+
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let subscriber = FmtSubscriber::builder()
