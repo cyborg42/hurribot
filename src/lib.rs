@@ -5,6 +5,8 @@ use time::{OffsetDateTime, UtcOffset};
 pub mod candle_chart;
 pub mod contract;
 pub mod strategy;
+pub mod binance_api;
+
 
 pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard {
     let file_name = file_name.to_owned() + ".log";
