@@ -160,7 +160,7 @@ impl RollConfig {
     pub fn new(config: Vec<(Leverage, TakeProfit, MaxDraw)>) -> Self {
         Self(config)
     }
-    fn linear(k: f64, b: f64, max: f64, step: f64) -> Self {
+    fn linear(k: f64, b: f64, max: f64, _step: f64) -> Self {
         let mut config = Vec::new();
         let mut x = 1.;
         while x < max {

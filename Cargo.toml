@@ -15,3 +15,5 @@ time = {version = "0.3.31", features = ["local-offset", "macros"]}
 tracing = "0.1.40"
 tracing-appender = "0.2.3"
 tracing-subscriber = "0.3.18"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8.10"
