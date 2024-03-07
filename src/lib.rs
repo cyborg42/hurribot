@@ -1,12 +1,10 @@
 #![allow(dead_code)]
-#![allow(unused_imports)]
-use time::{OffsetDateTime, UtcOffset};
+use time::{macros::offset, OffsetDateTime};
 
+pub mod binance_api;
 pub mod candle_chart;
 pub mod contract;
 pub mod strategy;
-pub mod binance_api;
-
 
 pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard {
     let file_name = file_name.to_owned() + ".log";
@@ -15,8 +13,8 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
     use tracing_subscriber::fmt::time::FormatTime;
     use tracing_subscriber::FmtSubscriber;
 
-    struct UtcOffset;
-    impl FormatTime for UtcOffset {
+    struct Timer;
+    impl FormatTime for Timer {
         fn format_time(
             &self,
             w: &mut tracing_subscriber::fmt::format::Writer<'_>,
@@ -40,7 +38,7 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
         .with_file(true)
         .with_line_number(true)
         .with_thread_names(true)
-        .with_timer(UtcOffset)
+        .with_timer(Timer)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
@@ -48,5 +46,5 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
 }
 
 pub fn local_now() -> OffsetDateTime {
-    time::OffsetDateTime::now_utc().to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())
+    OffsetDateTime::now_utc().to_offset(offset!(+8))
 }

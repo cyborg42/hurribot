@@ -1,8 +1,4 @@
-use std::{time::SystemTime, vec};
-
-use rand::seq::SliceRandom;
-use rand::{random, thread_rng};
-use time::OffsetDateTime;
+use rand::random;
 
 #[test]
 fn rands() {

@@ -5,7 +5,7 @@ use crate::{
     contract::{Contract, HANDLING_FEE_RATE_MAKER},
 };
 use time::{Duration, OffsetDateTime};
-use tracing::{error, info, warn};
+use tracing::warn;
 
 use super::Strategy;
 

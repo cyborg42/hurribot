@@ -1,5 +1,5 @@
 use time::OffsetDateTime;
-use tracing::{error, info, warn};
+use tracing::error;
 
 /// 手续费率（maker为0.02%，taker为0.05%，随VIP等级变化）
 pub const HANDLING_FEE_RATE_MAKER: f64 = 0.0002;
@@ -89,7 +89,14 @@ impl Contract {
 
 #[test]
 fn contract_test() {
-    let offer = Contract::open(true, 100., 100., 100., OffsetDateTime::from_unix_timestamp(0).unwrap(), Some(99.9));
+    let offer = Contract::open(
+        true,
+        100.,
+        100.,
+        100.,
+        OffsetDateTime::from_unix_timestamp(0).unwrap(),
+        Some(99.9),
+    );
     println!("{:?}", offer);
     println!("{:?}", offer.liquidate(9.));
 }

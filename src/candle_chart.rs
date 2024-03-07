@@ -1,7 +1,7 @@
 use std::{fs::File, path::Path};
 
-use time::{OffsetDateTime, PrimitiveDateTime, Time, Duration};
-use tracing::{error, info, warn};
+use time::{Duration, OffsetDateTime};
+use tracing::info;
 
 #[derive(Debug)]
 pub struct CandleChart {
@@ -128,7 +128,7 @@ impl Eq for CandleData {}
 
 #[test]
 fn candle_test() {
-    let close_time_nano = 1672531200000 as i128 * 1000_000;
+    let close_time_nano = 1672531200000_i128 * 1_000_000;
     let close_time = OffsetDateTime::from_unix_timestamp_nanos(close_time_nano).unwrap();
     dbg!(close_time);
 }

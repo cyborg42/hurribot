@@ -1,15 +1,9 @@
 use std::collections::VecDeque;
 
 use super::Strategy;
-use crate::{
-    candle_chart::CandleData,
-    contract::{Contract, HANDLING_FEE_RATE_MAKER, HANDLING_FEE_RATE_TAKER},
-};
-use time::{
-    macros::{date, datetime},
-    Date, Time,
-};
-use tracing::{error, info, warn};
+use crate::{candle_chart::CandleData, contract::Contract};
+
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct RollOnceStrategy {
@@ -235,6 +229,7 @@ fn roll_once_test() {
     use crate::local_now;
     use time::Duration;
     use time::OffsetDateTime;
+    use time::{Date, Time};
 
     let log_name = local_now()
         .format(
@@ -255,7 +250,7 @@ fn roll_once_test() {
     });
     let mut strategy = RollOnceStrategy::new(true, 100., RollConfig::default());
     for c in chart.candles.iter() {
-        strategy.update(&c);
+        strategy.update(c);
         if strategy.status != RollOnceStatus::Processing {
             break;
         }
@@ -279,7 +274,6 @@ fn roll_bull_finder() {
     use crate::init_log;
     use crate::local_now;
     use time::Duration;
-    use time::OffsetDateTime;
 
     let log_name = local_now()
         .format(
@@ -340,7 +334,7 @@ fn roll_bull_finder() {
             start_new = true;
         }
     }
-    if start_new == false && max.high / entry.low > 1.5 {
+    if !start_new && max.high / entry.low > 1.5 {
         good_set.push((entry.clone(), last, max.clone(), max_draw_static.clone()));
     }
     for (entry, end, max, max_draw_static) in good_set.iter() {
@@ -363,7 +357,7 @@ fn roll_bull_finder() {
     }
     info!("good set count: {}", good_set.len());
     //create and open file result.csv, write max_raw_static to it
-    use std::fs::File;
+
     use std::fs::OpenOptions;
     use std::io::Write;
     let mut file = OpenOptions::new().append(true).open("result.csv").unwrap();
@@ -377,8 +371,8 @@ fn roll_bull_finder() {
 }
 
 #[test]
-fn scatch() {
-    let mut price = 1.;
+fn scratch() {
+    let _price = 1.;
     let steps = 1000;
     let x = 2.0f64.powf(1. / steps as f64);
     println!("x: {}", x.powf(1000.));

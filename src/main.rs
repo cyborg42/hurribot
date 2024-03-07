@@ -1,13 +1,12 @@
 #![allow(dead_code)]
-#![allow(unused_imports)]
 use hurribot::{
     candle_chart::CandleChart,
     init_log, local_now,
     strategy::{geo_strategy::GeoStrategy, Strategy},
 };
-use time::Duration;
 use std::sync::{Arc, Mutex};
-use tracing::{error, info, warn};
+use time::Duration;
+use tracing::info;
 
 // TODO: 币安会在0:00 8:00 16:00进行资金费率结算，若需支付资金费率则提前一分钟平仓并推迟10s建仓，若需收取资金费率则推迟一分钟平仓+建仓
 
@@ -55,4 +54,3 @@ fn main() {
         strategy.cost, strategy.value(), ret, strategy.open_count
     );
 }
-

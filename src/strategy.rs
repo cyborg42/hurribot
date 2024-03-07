@@ -1,10 +1,4 @@
-use std::sync::{Arc, Mutex};
-
-use crate::{
-    candle_chart::CandleData,
-    contract::{Contract, HANDLING_FEE_RATE_MAKER, HANDLING_FEE_RATE_TAKER},
-};
-use tracing::{error, info, warn};
+use crate::candle_chart::CandleData;
 
 pub trait Strategy {
     fn update(&mut self, candle: &CandleData);
