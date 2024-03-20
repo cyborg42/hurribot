@@ -61,12 +61,12 @@ impl BinanceConfig {
 }
 
 #[derive(Clone, Debug)]
-pub enum FutureWsConnection {
+pub enum FuturesWsConnection {
     MarketData(Vec<String>),
     UserData(BinanceConfig),
 }
-impl FutureWsConnection {
-    pub fn run<F>(&self, market: FuturesMarket, handler: F, running: Arc<AtomicBool>)
+impl FuturesWsConnection {
+    pub fn run<F>(&self, handler: F, running: Arc<AtomicBool>)
     where
         F: FnMut(FuturesWebsocketEvent) -> binance::errors::Result<()> + Send + 'static,
     {
@@ -74,13 +74,13 @@ impl FutureWsConnection {
         std::thread::spawn(move || {
             match c {
                 Self::MarketData(sub) => {
-                    let mut future_ws = FuturesWebSockets::new(handler);
+                    let mut futures_ws = FuturesWebSockets::new(handler);
                     loop {
-                        if let Err(e) = future_ws.connect_multiple_streams(&market, &sub) {
+                        if let Err(e) = futures_ws.connect_multiple_streams(&FuturesMarket::USDM, &sub) {
                             error!("Init connection error, exiting...: {:?}", e);
                             break;
                         }
-                        if !future_ws.event_loop_reconnect(&running) {
+                        if !futures_ws.event_loop_reconnect(&running) {
                             break;
                         }
                     }
@@ -90,7 +90,7 @@ impl FutureWsConnection {
                         Some(config.api_key.clone()),
                         Some(config.secret_key.clone()),
                     );
-                    let mut future_ws = FuturesWebSockets::new(handler);
+                    let mut futures_ws = FuturesWebSockets::new(handler);
                     let mut listen_key_last = String::new();
                     loop {
                         let user_key = match user_stream.start() {
@@ -118,11 +118,11 @@ impl FutureWsConnection {
                         }
                         let listen_key: &'static str =
                             unsafe { std::mem::transmute(user_key.listen_key.as_str()) };
-                        if let Err(e) = future_ws.connect(&market, listen_key) {
+                        if let Err(e) = futures_ws.connect(&FuturesMarket::USDM, listen_key) {
                             error!("Init connection error, exiting...: {:?}", e);
                             break;
                         }
-                        if !future_ws.event_loop_reconnect(&running) {
+                        if !futures_ws.event_loop_reconnect(&running) {
                             break;
                         }
                     }
@@ -133,13 +133,13 @@ impl FutureWsConnection {
     }
 }
 
-pub struct BinanceClients {
+pub struct Clients {
     pub config: BinanceConfig,
     pub general: binance::futures::general::FuturesGeneral,
     pub market: binance::futures::market::FuturesMarket,
     pub account: binance::futures::account::FuturesAccount,
 }
-impl BinanceClients {
+impl Clients {
     pub fn new(config: BinanceConfig) -> Self {
         let general = binance::futures::general::FuturesGeneral::new(
             Some(config.api_key.clone()),
@@ -169,10 +169,9 @@ mod tests {
     use crate::stdout_logger;
 
     use super::*;
-    use binance::api::Binance;
 
     #[test]
-    fn future_ws_test() {
+    fn ws() {
         use binance::futures::websockets::*;
         use std::sync::atomic::AtomicBool;
         stdout_logger();
@@ -184,58 +183,43 @@ mod tests {
 
         let subscribes = vec!["!markPrice@arr".to_string()];
 
-        let conn = FutureWsConnection::MarketData(subscribes);
-        conn.run(FuturesMarket::USDM, handler, running.clone());
+        let conn = FuturesWsConnection::MarketData(subscribes);
+        conn.run(handler, running.clone());
 
         sleep(Duration::from_secs(60));
     }
     #[test]
-    fn future_rest_test() {
-        use binance::futures;
+    fn rest() {
         stdout_logger();
         let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
 
-        let general = futures::general::FuturesGeneral::new(
-            Some(binance_config.api_key.clone()),
-            Some(binance_config.secret_key.clone()),
-        );
-        let market = futures::market::FuturesMarket::new(
-            Some(binance_config.api_key.clone()),
-            Some(binance_config.secret_key.clone()),
-        );
-        let account = futures::account::FuturesAccount::new(
-            Some(binance_config.api_key.clone()),
-            Some(binance_config.secret_key.clone()),
-        );
-        market.get_all_prices().unwrap();
-        println!("{:#?}", account.account_information().unwrap());
-        println!("{:#?}", general.get_symbol_info("BTCUSDT").unwrap());
-        //println!("{:#?}", general.exchange_info());
+        let clients = Clients::new(binance_config);
+        clients.market.get_all_prices().unwrap();
+        println!("{:#?}", clients.account.account_information().unwrap());
+        println!("{:#?}", clients.general.get_symbol_info("BTCUSDT").unwrap());
+        //println!("{:#?}", clients.general.exchange_info());
     }
     #[test]
-    fn future_account_test() {
-        use binance::futures::account::FuturesAccount;
+    fn account() {
         stdout_logger();
         let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
+        let clients = Clients::new(binance_config);
 
-        let account = FuturesAccount::new(
-            Some(binance_config.api_key.clone()),
-            Some(binance_config.secret_key.clone()),
-        );
-        println!("{:#?}", account.account_information());
+        
+        println!("{:#?}", clients.account.account_information());
     }
     #[test]
-    fn future_account_ws_test() {
+    fn account_ws() {
         use std::sync::atomic::AtomicBool;
         stdout_logger();
         let config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
         let keep_running = Arc::new(AtomicBool::new(true)); // Used to control the event loop
-        let conn = FutureWsConnection::UserData(config);
+        let conn = FuturesWsConnection::UserData(config);
         let handler = |event: FuturesWebsocketEvent| {
             println!("Received: {:?}", event);
             Ok(())
         };
-        conn.run(FuturesMarket::USDM, handler, keep_running);
+        conn.run(handler, keep_running);
         sleep(Duration::from_secs(60));
     }
 }

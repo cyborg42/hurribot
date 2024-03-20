@@ -3,7 +3,7 @@ use std::{sync::Arc, thread::sleep, time::Duration};
 use crossbeam::channel::unbounded;
 use hurribot::{
     algrithm,
-    binance_api::FutureWsConnection,
+    binance_futures::FuturesWsConnection,
     market::{self, SymbolUpdateInfo},
     stdout_logger,
 };
@@ -49,12 +49,12 @@ fn main() {
 
     let subscribes = vec!["!markPrice@arr".to_string()];
 
-    let conn = FutureWsConnection::MarketData(subscribes);
-    conn.run(FuturesMarket::USDM, handler, running.clone());
+    let conn = FuturesWsConnection::MarketData(subscribes);
+    conn.run(handler, running.clone());
 
     std::thread::spawn(move || {
         let binance_config =
-            hurribot::binance_api::BinanceConfig::value_parse("./config/binance_config.toml")
+            hurribot::binance_futures::BinanceConfig::value_parse("./config/binance_config.toml")
                 .unwrap();
 
         let mut market: market::MarketStatus<algrithm::roll::Roll> =

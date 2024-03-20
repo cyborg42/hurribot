@@ -2,7 +2,7 @@
 use time::{macros::offset, OffsetDateTime};
 
 pub mod algrithm;
-pub mod binance_api;
+pub mod binance_futures;
 pub mod candle_chart;
 pub mod contract;
 pub mod strategy;

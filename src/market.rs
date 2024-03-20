@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     algrithm::Algrithm,
-    binance_api::{BinanceClients, BinanceConfig},
+    binance_futures::{Clients, BinanceConfig},
 };
 use anyhow::anyhow;
 use binance::futures;
@@ -14,7 +14,7 @@ pub struct MarketStatus<A> {
     total_wallet_balance: f64,
     available_balance: f64,
 
-    binance_clients: BinanceClients,
+    binance_clients: Clients,
     // orders: Vec<Order>,
     // positions: Vec<Position>,
 }
@@ -36,7 +36,7 @@ pub struct SymbolUpdateInfo {
 
 impl<A: Algrithm> MarketStatus<A> {
     pub fn new(binance_config: BinanceConfig) -> anyhow::Result<Self> {
-        let binance_clients = BinanceClients::new(binance_config);
+        let binance_clients = Clients::new(binance_config);
 
         let symbols = binance_clients
             .general
