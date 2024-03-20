@@ -1,13 +1,18 @@
-use crate::market::SymbolUpdateInfo;
+use crate::market::SymbolPriceInfo;
 
 use super::Algrithm;
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Roll {
-    status: SymbolUpdateInfo,
+    status: SymbolPriceInfo,
 }
 impl Algrithm for Roll {
-    fn update(&mut self, symbol_status: SymbolUpdateInfo)  {
+    fn new(symbol_status: SymbolPriceInfo) -> Self {
+        Self {
+            status: symbol_status,
+        }
+    }
+    fn update(&mut self, symbol_status: SymbolPriceInfo) {
         self.status = symbol_status;
     }
     fn get_value(&self) -> f64 {

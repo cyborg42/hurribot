@@ -4,7 +4,7 @@ use crossbeam::channel::unbounded;
 use hurribot::{
     algrithm,
     binance_futures::FuturesWsConnection,
-    market::{self, SymbolUpdateInfo},
+    market::{self, SymbolPriceInfo},
     stdout_logger,
 };
 use tracing::info;
@@ -32,7 +32,7 @@ fn main() {
                 let m: Vec<_> = v
                     .into_iter()
                     .map(|p| {
-                        let symbol = SymbolUpdateInfo {
+                        let symbol = SymbolPriceInfo {
                             price: p.mark_price.parse().unwrap_or_default(),
                             update_time: p.event_time,
                             funding_rate: p.funding_rate.parse().unwrap_or_default(),

@@ -76,7 +76,9 @@ impl FuturesWsConnection {
                 Self::MarketData(sub) => {
                     let mut futures_ws = FuturesWebSockets::new(handler);
                     loop {
-                        if let Err(e) = futures_ws.connect_multiple_streams(&FuturesMarket::USDM, &sub) {
+                        if let Err(e) =
+                            futures_ws.connect_multiple_streams(&FuturesMarket::USDM, &sub)
+                        {
                             error!("Init connection error, exiting...: {:?}", e);
                             break;
                         }
@@ -162,6 +164,14 @@ impl Clients {
     }
 }
 
+impl core::fmt::Debug for Clients {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Clients")
+            .field("config", &self.config)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::thread::sleep;
@@ -180,19 +190,15 @@ mod tests {
             println!("Received: {:?}", event);
             Ok(())
         };
-
         let subscribes = vec!["!markPrice@arr".to_string()];
-
         let conn = FuturesWsConnection::MarketData(subscribes);
         conn.run(handler, running.clone());
-
         sleep(Duration::from_secs(60));
     }
     #[test]
     fn rest() {
         stdout_logger();
         let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
-
         let clients = Clients::new(binance_config);
         clients.market.get_all_prices().unwrap();
         println!("{:#?}", clients.account.account_information().unwrap());
@@ -204,8 +210,6 @@ mod tests {
         stdout_logger();
         let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
         let clients = Clients::new(binance_config);
-
-        
         println!("{:#?}", clients.account.account_information());
     }
     #[test]
@@ -213,13 +217,13 @@ mod tests {
         use std::sync::atomic::AtomicBool;
         stdout_logger();
         let config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
-        let keep_running = Arc::new(AtomicBool::new(true)); // Used to control the event loop
-        let conn = FuturesWsConnection::UserData(config);
+        let running = Arc::new(AtomicBool::new(true)); // Used to control the event loop
         let handler = |event: FuturesWebsocketEvent| {
             println!("Received: {:?}", event);
             Ok(())
         };
-        conn.run(handler, keep_running);
+        let conn = FuturesWsConnection::UserData(config);
+        conn.run(handler, running);
         sleep(Duration::from_secs(60));
     }
 }
