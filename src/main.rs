@@ -1,56 +1,71 @@
-#![allow(dead_code)]
+use std::{sync::Arc, thread::sleep, time::Duration};
+
+use crossbeam::channel::unbounded;
 use hurribot::{
-    candle_chart::CandleChart,
-    init_log, local_now,
-    strategy::{geo_strategy::GeoStrategy, Strategy},
+    algrithm,
+    binance_api::FutureWsConnection,
+    market::{self, SymbolUpdateInfo},
+    stdout_logger,
 };
-use std::sync::{Arc, Mutex};
-use time::Duration;
 use tracing::info;
 
-// TODO: 币安会在0:00 8:00 16:00进行资金费率结算，若需支付资金费率则提前一分钟平仓并推迟10s建仓，若需收取资金费率则推迟一分钟平仓+建仓
-
 fn main() {
-    let log_name = local_now()
-        .format(
-            &time::format_description::parse(
-                "hurribot_[year]-[month]-[day]T[hour]:[minute]:[second]",
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    let _logger_guard = init_log(&log_name);
-    let chart = CandleChart::read_from_csv("./data/BTCUSDT", Duration::minutes(1));
-    let total_capital = Arc::new(Mutex::new(1000000.));
-    let ratio = 1.;
-    let leverage = 10.;
-    let mut strategy = GeoStrategy::new(
-        true,
-        leverage,
-        ratio,
-        Duration::minutes(60),
-        10.,
-        0.03,
-        0.002,
-        total_capital.clone(),
-    );
+    // let log_name = hurribot::local_now()
+    //     .format(
+    //         &time::format_description::parse(
+    //             "hurribot_[year]-[month]-[day]T[hour]:[minute]:[second]",
+    //         )
+    //         .unwrap(),
+    //     )
+    //     .unwrap();
+    // let _logger_guard = hurribot::init_log(&log_name);
 
-    for (i, candle) in chart.candles.iter().enumerate() {
-        if i % 4000 == 0 {
-            info!(
-                "round: {}, price: {}, value: {}, return rate: {}",
-                candle.close_time,
-                candle.close,
-                strategy.value(),
-                strategy.value() / strategy.cost
-            );
+    stdout_logger();
+    info!("start");
+    use binance::futures::websockets::*;
+    use std::sync::atomic::AtomicBool;
+    let running = Arc::new(AtomicBool::new(true)); // Used to control the event loop
+    let (symbol_tx, symbol_rx) = unbounded();
+    let handler = move |event: FuturesWebsocketEvent| {
+        match event {
+            FuturesWebsocketEvent::MarkPriceAll(v) => {
+                let m: Vec<_> = v
+                    .into_iter()
+                    .map(|p| {
+                        let symbol = SymbolUpdateInfo {
+                            price: p.mark_price.parse().unwrap_or_default(),
+                            update_time: p.event_time,
+                            funding_rate: p.funding_rate.parse().unwrap_or_default(),
+                        };
+                        (p.symbol, symbol)
+                    })
+                    .collect();
+                symbol_tx.send(m).unwrap();
+            }
+            _ => {}
         }
-        strategy.update(candle);
-    }
-    strategy.close(chart.candles.last().unwrap().close);
-    let ret = strategy.value() / strategy.cost;
-    info!(
-        "ratio: {ratio}, leverage: {leverage}, add money: {}, captial: {}, return rate: {}, open count: {}",
-        strategy.cost, strategy.value(), ret, strategy.open_count
-    );
+        Ok(())
+    };
+
+    let subscribes = vec!["!markPrice@arr".to_string()];
+
+    let conn = FutureWsConnection::MarketData(subscribes);
+    conn.run(FuturesMarket::USDM, handler, running.clone());
+
+    std::thread::spawn(move || {
+        let binance_config =
+            hurribot::binance_api::BinanceConfig::value_parse("./config/binance_config.toml")
+                .unwrap();
+
+        let mut market: market::MarketStatus<algrithm::roll::Roll> =
+            market::MarketStatus::new(binance_config).unwrap();
+
+        for symbols in symbol_rx {
+            for (symbol, status) in symbols {
+                market.update(symbol, status)
+            }
+            println!("{:#?}", market);
+        }
+    });
+    sleep(Duration::from_secs(60));
 }

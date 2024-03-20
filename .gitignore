@@ -1,6 +1,7 @@
 /target
 /logs
 /data
+/analyze
 /config
 /.idea
 /.vscode
