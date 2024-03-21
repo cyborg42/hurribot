@@ -8,6 +8,7 @@ use std::{
 
 use binance::{
     api::Binance,
+    config::Config,
     futures::{
         userstream::FuturesUserStream,
         websockets::{FuturesMarket, FuturesWebSockets, FuturesWebsocketEvent},
@@ -25,7 +26,7 @@ impl<'a> FuturesWebSocketsExt for FuturesWebSockets<'a> {
         if let Err(e) = self.event_loop(running) {
             match e.0 {
                 binance::errors::ErrorKind::Msg(err) => {
-                    if err.starts_with("Disconnected") {
+                    if err.contains("Disconnected") || err.contains("UserDataStreamExpiredEvent") {
                         warn!("Disconnected from binance, reconnecting...: {}", err);
                         self.disconnect().ok();
                         return true;
@@ -47,7 +48,7 @@ impl<'a> FuturesWebSocketsExt for FuturesWebSockets<'a> {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct BinanceConfig {
     pub api_key: String,
     pub secret_key: String,
@@ -59,6 +60,11 @@ impl BinanceConfig {
         Ok(val)
     }
 }
+impl core::fmt::Debug for BinanceConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BinanceConfig").finish()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum FuturesWsConnection {
@@ -66,7 +72,7 @@ pub enum FuturesWsConnection {
     UserData(BinanceConfig),
 }
 impl FuturesWsConnection {
-    pub fn run<F>(&self, handler: F, running: Arc<AtomicBool>)
+    pub fn run<F>(&self, mut handler: F, running: Arc<AtomicBool>)
     where
         F: FnMut(FuturesWebsocketEvent) -> binance::errors::Result<()> + Send + 'static,
     {
@@ -92,6 +98,12 @@ impl FuturesWsConnection {
                         Some(config.api_key.clone()),
                         Some(config.secret_key.clone()),
                     );
+                    let handler = |e: FuturesWebsocketEvent| {
+                        if let FuturesWebsocketEvent::UserDataStreamExpiredEvent(_) = e {
+                            error_chain::bail!("UserDataStreamExpiredEvent");
+                        }
+                        handler(e)
+                    };
                     let mut futures_ws = FuturesWebSockets::new(handler);
                     let mut listen_key_last = String::new();
                     loop {
@@ -143,17 +155,24 @@ pub struct Clients {
 }
 impl Clients {
     pub fn new(config: BinanceConfig) -> Self {
-        let general = binance::futures::general::FuturesGeneral::new(
+        let c = Config {
+            recv_window: 10000,
+            ..Default::default()
+        };
+        let general = binance::futures::general::FuturesGeneral::new_with_config(
             Some(config.api_key.clone()),
             Some(config.secret_key.clone()),
+            &c,
         );
-        let market = binance::futures::market::FuturesMarket::new(
+        let market = binance::futures::market::FuturesMarket::new_with_config(
             Some(config.api_key.clone()),
             Some(config.secret_key.clone()),
+            &c,
         );
-        let account = binance::futures::account::FuturesAccount::new(
+        let account = binance::futures::account::FuturesAccount::new_with_config(
             Some(config.api_key.clone()),
             Some(config.secret_key.clone()),
+            &c,
         );
         Self {
             config,
@@ -166,9 +185,7 @@ impl Clients {
 
 impl core::fmt::Debug for Clients {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Clients")
-            .field("config", &self.config)
-            .finish()
+        f.debug_struct("Clients").finish()
     }
 }
 
@@ -201,8 +218,8 @@ mod tests {
         let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
         let clients = Clients::new(binance_config);
         clients.market.get_all_prices().unwrap();
-        println!("{:#?}", clients.account.account_information().unwrap());
-        println!("{:#?}", clients.general.get_symbol_info("BTCUSDT").unwrap());
+        println!("{:#?}", clients.account.account_information());
+        //println!("{:#?}", clients.general.get_symbol_info("BTCUSDT").unwrap());
         //println!("{:#?}", clients.general.exchange_info());
     }
     #[test]

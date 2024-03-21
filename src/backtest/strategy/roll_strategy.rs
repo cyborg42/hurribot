@@ -1,9 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::backtest::{
-    candle_chart::{CandleChart, CandleData},
-    contract::Contract,
-};
+use crate::backtest::{candle_chart::CandleData, contract::Contract};
 
 use super::Strategy;
 
@@ -243,7 +240,7 @@ fn roll_once_test() {
         )
         .unwrap();
     let _logger_guard = init_log(&log_name);
-    let mut chart = CandleChart::read_from_csv("./data/ETHUSDT", Duration::minutes(1));
+    let mut chart = crate::backtest::candle_chart::CandleChart::read_from_csv("./data/ETHUSDT", Duration::minutes(1));
     chart.candles.retain(|c| {
         c.close_time
             > OffsetDateTime::new_utc(
@@ -286,7 +283,7 @@ fn roll_bull_finder() {
         )
         .unwrap();
     let _logger_guard = init_log(&log_name);
-    let chart = CandleChart::read_from_csv("./data/PEOPLEUSDT", Duration::minutes(1));
+    let chart = crate::backtest::candle_chart::CandleChart::read_from_csv("./data/PEOPLEUSDT", Duration::minutes(1));
     let mut max = CandleData::default();
     let mut entry = CandleData::default();
     let mut start_new = true;

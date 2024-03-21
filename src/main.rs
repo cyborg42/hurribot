@@ -1,5 +1,6 @@
 use std::{sync::Arc, thread::sleep, time::Duration};
 
+use binance::futures::websockets::*;
 use crossbeam::channel::unbounded;
 use hurribot::{
     algrithm,
@@ -7,8 +8,8 @@ use hurribot::{
     market::{self, SymbolPriceInfo},
     stdout_logger,
 };
+use std::sync::atomic::AtomicBool;
 use tracing::info;
-
 fn main() {
     // let log_name = hurribot::local_now()
     //     .format(
@@ -22,8 +23,7 @@ fn main() {
 
     stdout_logger();
     info!("start");
-    use binance::futures::websockets::*;
-    use std::sync::atomic::AtomicBool;
+
     let running = Arc::new(AtomicBool::new(true)); // Used to control the event loop
     let (symbol_tx, symbol_rx) = unbounded();
     let handler = move |event: FuturesWebsocketEvent| {
@@ -33,11 +33,12 @@ fn main() {
                     .into_iter()
                     .map(|p| {
                         let symbol = SymbolPriceInfo {
+                            symbol:p.symbol,
                             price: p.mark_price.parse().unwrap_or_default(),
                             update_time: p.event_time,
                             funding_rate: p.funding_rate.parse().unwrap_or_default(),
                         };
-                        (p.symbol, symbol)
+                        symbol
                     })
                     .collect();
                 symbol_tx.send(m).unwrap();
@@ -57,13 +58,10 @@ fn main() {
             hurribot::binance_futures::BinanceConfig::value_parse("./config/binance_config.toml")
                 .unwrap();
 
-        let mut market: market::MarketStatus<algrithm::roll::RollAlgrithm> =
-            market::MarketStatus::new(binance_config).unwrap();
+        let mut market: market::MarketStatus = market::MarketStatus::new(binance_config).unwrap();
 
         for symbols in symbol_rx {
-            for (symbol, status) in symbols {
-                market.update(symbol, status)
-            }
+            for symbol in symbols {}
             println!("{:#?}", market);
         }
     });

@@ -10,14 +10,14 @@ use tracing::error;
 
 #[derive(Debug, Clone)]
 pub struct SymbolPriceInfo {
+    pub symbol: String,
     pub price: f64,
     pub update_time: u64,
     pub funding_rate: f64,
 }
 
 #[derive(Debug)]
-pub struct SymbolStatus<A> {
-    algrithm: A,
+pub struct SymbolStatus {
     leverage: u8,
     isolated: bool,
     min_qty: f64,
@@ -26,10 +26,9 @@ pub struct SymbolStatus<A> {
     min_notional: f64,
 }
 
-impl<A> SymbolStatus<A> {
-    pub fn new(algrithm: A) -> Self {
+impl SymbolStatus {
+    pub fn new() -> Self {
         Self {
-            algrithm,
             leverage: 0,
             isolated: false,
             min_qty: 0.,
@@ -62,8 +61,8 @@ impl<A> SymbolStatus<A> {
 }
 
 #[derive(Debug)]
-pub struct MarketStatus<A> {
-    symbols: HashMap<String, SymbolStatus<A>>,
+pub struct MarketStatus {
+    symbols: HashMap<String, SymbolStatus>,
 
     total_wallet_balance: f64,
     available_balance: f64,
@@ -73,25 +72,19 @@ pub struct MarketStatus<A> {
     // positions: Vec<Position>,
 }
 
-impl<A: Algrithm> MarketStatus<A> {
+impl MarketStatus {
     pub fn new(binance_config: BinanceConfig) -> anyhow::Result<Self> {
         let binance_clients = Clients::new(binance_config);
 
         let ex_info = binance_clients
             .general
             .exchange_info()
-            .map_err(|_| anyhow!("get ex info failed"))?;
+            .map_err(|e| anyhow!("get ex info failed: {}", e))?;
         let account_info = binance_clients
             .account
             .account_information()
-            .map_err(|_| anyhow!("get account info failed"))?;
-        let prices = match binance_clients
-            .market
-            .get_mark_prices()
-            .map_err(|_| anyhow!("get mark price failed"))?
-        {
-            futures::model::MarkPrices::AllMarkPrices(p) => p,
-        };
+            .map_err(|e| anyhow!("get account info failed: {}", e))?;
+
         let mut ret = Self {
             symbols: HashMap::new(),
             total_wallet_balance: account_info.total_wallet_balance,
@@ -100,29 +93,14 @@ impl<A: Algrithm> MarketStatus<A> {
         };
         let mut map = HashMap::new();
         for s in ex_info.symbols {
-            map.entry(s.symbol.clone()).or_insert((s, None, None));
+            map.entry(s.symbol.clone()).or_insert((s, None));
         }
         for a in account_info.positions {
             map.entry(a.symbol.clone()).and_modify(|e| e.1 = Some(a));
         }
-        for p in prices {
-            map.entry(p.symbol.clone()).and_modify(|e| e.2 = Some(p));
-        }
 
-        for (symbol_name, (symbol, position, price)) in map {
-            let algrithm = if let Some(p) = price {
-                let s = SymbolPriceInfo {
-                    price: p.mark_price,
-                    update_time: p.time,
-                    funding_rate: p.last_funding_rate,
-                };
-                A::new(s)
-            } else {
-                error!("Symbol {} price not found", symbol_name);
-                continue;
-            };
-
-            let mut status = SymbolStatus::<A>::new(algrithm);
+        for (symbol_name, (symbol, position)) in map {
+            let mut status = SymbolStatus::new();
             status.update_market_info(symbol);
 
             if let Some(p) = position {
@@ -144,30 +122,6 @@ impl<A: Algrithm> MarketStatus<A> {
         Ok(ret)
     }
 
-    pub fn update(&mut self, symbol: String, status: SymbolPriceInfo) {
-        self.symbols
-            .entry(symbol)
-            .and_modify(|s| s.algrithm.update(status.clone()))
-            .or_insert_with_key(|s| {
-                let mut status = SymbolStatus::new(A::new(status));
-                if let Ok(symbol_info) = self.clients.general.get_symbol_info(s) {
-                    status.update_market_info(symbol_info);
-                }
-                self.clients
-                    .account
-                    .change_margin_type(s, true)
-                    .map_err(|e| error!("Symbol {} change margin type failed: {}", s, e))
-                    .ok();
-                self.clients
-                    .account
-                    .change_initial_leverage(s, 20)
-                    .map_err(|e| error!("Symbol {} change leverage failed: {}", s, e))
-                    .ok();
-                status.isolated = true;
-                status.leverage = 20;
-                status
-            });
-    }
     pub fn len(&self) -> usize {
         self.symbols.len()
     }
@@ -176,15 +130,6 @@ impl<A: Algrithm> MarketStatus<A> {
 #[test]
 fn market_test() {
     let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
-    let mut market: MarketStatus<crate::algrithm::roll::RollAlgrithm> =
-        MarketStatus::new(binance_config).unwrap();
-    market.update(
-        "BTCUSDT".to_string(),
-        SymbolPriceInfo {
-            price: 10000.0,
-            update_time: 100,
-            funding_rate: 0.1,
-        },
-    );
+    let market = MarketStatus::new(binance_config);
     println!("{:#?}", market);
 }
