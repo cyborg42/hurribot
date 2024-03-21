@@ -3,10 +3,10 @@ use crate::market::SymbolPriceInfo;
 use super::Algrithm;
 
 #[derive(Debug)]
-pub struct Roll {
+pub struct RollAlgrithm {
     status: SymbolPriceInfo,
 }
-impl Algrithm for Roll {
+impl Algrithm for RollAlgrithm {
     fn new(symbol_status: SymbolPriceInfo) -> Self {
         Self {
             status: symbol_status,

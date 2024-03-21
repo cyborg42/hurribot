@@ -1,4 +1,4 @@
-use crate::candle_chart::CandleData;
+use super::candle_chart::CandleData;
 
 pub trait Strategy {
     fn update(&mut self, candle: &CandleData);

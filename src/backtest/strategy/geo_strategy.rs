@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{
+use time::{Duration, OffsetDateTime};
+use tracing::warn;
+
+use crate::backtest::{
     candle_chart::CandleData,
     contract::{Contract, HANDLING_FEE_RATE_MAKER},
 };
-use time::{Duration, OffsetDateTime};
-use tracing::warn;
 
 use super::Strategy;
 

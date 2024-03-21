@@ -57,7 +57,7 @@ fn main() {
             hurribot::binance_futures::BinanceConfig::value_parse("./config/binance_config.toml")
                 .unwrap();
 
-        let mut market: market::MarketStatus<algrithm::roll::Roll> =
+        let mut market: market::MarketStatus<algrithm::roll::RollAlgrithm> =
             market::MarketStatus::new(binance_config).unwrap();
 
         for symbols in symbol_rx {

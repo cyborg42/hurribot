@@ -1,7 +1,11 @@
 use std::collections::VecDeque;
 
+use crate::backtest::{
+    candle_chart::{CandleChart, CandleData},
+    contract::Contract,
+};
+
 use super::Strategy;
-use crate::{candle_chart::CandleData, contract::Contract};
 
 use tracing::info;
 
@@ -224,7 +228,6 @@ impl RollJudge {
 
 #[test]
 fn roll_once_test() {
-    use crate::candle_chart::CandleChart;
     use crate::init_log;
     use crate::local_now;
     use time::Duration;
@@ -270,7 +273,6 @@ fn roll_once_test() {
 
 #[test]
 fn roll_bull_finder() {
-    use crate::candle_chart::CandleChart;
     use crate::init_log;
     use crate::local_now;
     use time::Duration;

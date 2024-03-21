@@ -2,11 +2,9 @@
 use time::{macros::offset, OffsetDateTime};
 
 pub mod algrithm;
+pub mod backtest;
 pub mod binance_futures;
-pub mod candle_chart;
-pub mod contract;
 pub mod market;
-pub mod strategy;
 
 pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard {
     let file_name = file_name.to_owned() + ".log";

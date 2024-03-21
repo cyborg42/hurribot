@@ -176,7 +176,7 @@ impl<A: Algrithm> MarketStatus<A> {
 #[test]
 fn market_test() {
     let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
-    let mut market: MarketStatus<crate::algrithm::roll::Roll> =
+    let mut market: MarketStatus<crate::algrithm::roll::RollAlgrithm> =
         MarketStatus::new(binance_config).unwrap();
     market.update(
         "BTCUSDT".to_string(),
@@ -186,5 +186,5 @@ fn market_test() {
             funding_rate: 0.1,
         },
     );
-    dbg!(market);
+    println!("{:#?}", market);
 }

@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 use hurribot::{
-    candle_chart::CandleChart,
+    backtest::{
+        candle_chart::CandleChart,
+        strategy::{geo_strategy::GeoStrategy, Strategy},
+    },
     init_log, local_now,
-    strategy::{geo_strategy::GeoStrategy, Strategy},
 };
 use std::sync::{Arc, Mutex};
 use time::Duration;
