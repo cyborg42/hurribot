@@ -3,7 +3,6 @@ use std::{sync::Arc, thread::sleep, time::Duration};
 use binance::futures::websockets::*;
 use crossbeam::channel::unbounded;
 use hurribot::{
-    algrithm,
     binance_futures::FuturesWsConnection,
     market::{self, SymbolPriceInfo},
     stdout_logger,
@@ -23,7 +22,6 @@ fn main() {
 
     stdout_logger();
     info!("start");
-
     let running = Arc::new(AtomicBool::new(true)); // Used to control the event loop
     let (symbol_tx, symbol_rx) = unbounded();
     let handler = move |event: FuturesWebsocketEvent| {
@@ -31,14 +29,10 @@ fn main() {
             FuturesWebsocketEvent::MarkPriceAll(v) => {
                 let m: Vec<_> = v
                     .into_iter()
-                    .map(|p| {
-                        let symbol = SymbolPriceInfo {
-                            symbol:p.symbol,
-                            price: p.mark_price.parse().unwrap_or_default(),
-                            update_time: p.event_time,
-                            funding_rate: p.funding_rate.parse().unwrap_or_default(),
-                        };
-                        symbol
+                    .map(|p| SymbolPriceInfo {
+                        price: p.mark_price.parse().unwrap_or_default(),
+                        update_time: p.event_time,
+                        funding_rate: p.funding_rate.parse().unwrap_or_default(),
                     })
                     .collect();
                 symbol_tx.send(m).unwrap();
@@ -58,10 +52,10 @@ fn main() {
             hurribot::binance_futures::BinanceConfig::value_parse("./config/binance_config.toml")
                 .unwrap();
 
-        let mut market: market::MarketStatus = market::MarketStatus::new(binance_config).unwrap();
+        let market: market::MarketStatus = market::MarketStatus::new(binance_config).unwrap();
 
         for symbols in symbol_rx {
-            for symbol in symbols {}
+            for _symbol in symbols {}
             println!("{:#?}", market);
         }
     });

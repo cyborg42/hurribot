@@ -1,16 +1,12 @@
 use std::collections::HashMap;
 
-use crate::{
-    algrithm::Algrithm,
-    binance_futures::{BinanceConfig, Clients},
-};
+use crate::binance_futures::{BinanceConfig, Clients};
 use anyhow::anyhow;
-use binance::futures;
+
 use tracing::error;
 
 #[derive(Debug, Clone)]
 pub struct SymbolPriceInfo {
-    pub symbol: String,
     pub price: f64,
     pub update_time: u64,
     pub funding_rate: f64,
@@ -24,6 +20,12 @@ pub struct SymbolStatus {
     min_qty_step: f64,
     tick_size: f64,
     min_notional: f64,
+}
+
+impl Default for SymbolStatus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SymbolStatus {
@@ -122,7 +124,7 @@ impl MarketStatus {
         Ok(ret)
     }
 
-    pub fn len(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.symbols.len()
     }
 }

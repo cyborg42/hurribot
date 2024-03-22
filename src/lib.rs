@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use time::{macros::offset, OffsetDateTime};
 
-pub mod algrithm;
+pub mod algorithm;
 pub mod backtest;
 pub mod binance_futures;
 pub mod market;
