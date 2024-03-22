@@ -3,9 +3,7 @@ use std::{sync::Arc, thread::sleep, time::Duration};
 use binance::futures::websockets::*;
 use crossbeam::channel::unbounded;
 use hurribot::{
-    binance_futures::FuturesWsConnection,
-    market::{self, SymbolPriceInfo},
-    stdout_logger,
+    algorithm::{roll::RollAlgrithm, AlgorithmsManager}, binance_futures::{BinanceConfig, FuturesWsConnection}, market::{self, SymbolPriceInfo}, stdout_logger
 };
 use std::sync::atomic::AtomicBool;
 use tracing::info;
@@ -27,15 +25,14 @@ fn main() {
     let handler = move |event: FuturesWebsocketEvent| {
         match event {
             FuturesWebsocketEvent::MarkPriceAll(v) => {
-                let m: Vec<_> = v
-                    .into_iter()
-                    .map(|p| SymbolPriceInfo {
+                v.into_iter().for_each(|p| {
+                    let s = SymbolPriceInfo {
                         price: p.mark_price.parse().unwrap_or_default(),
                         update_time: p.event_time,
                         funding_rate: p.funding_rate.parse().unwrap_or_default(),
-                    })
-                    .collect();
-                symbol_tx.send(m).unwrap();
+                    };
+                    symbol_tx.send((p.symbol, s)).unwrap();
+                });
             }
             _ => {}
         }
@@ -46,17 +43,19 @@ fn main() {
 
     let conn = FuturesWsConnection::MarketData(subscribes);
     conn.run(handler, running.clone());
+    let binance_config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
 
+    let _market: market::MarketStatus = market::MarketStatus::new(binance_config).unwrap();
+    let (signal_tx, signal_rx) = unbounded();
     std::thread::spawn(move || {
-        let binance_config =
-            hurribot::binance_futures::BinanceConfig::value_parse("./config/binance_config.toml")
-                .unwrap();
-
-        let market: market::MarketStatus = market::MarketStatus::new(binance_config).unwrap();
-
-        for symbols in symbol_rx {
-            for _symbol in symbols {}
-            println!("{:#?}", market);
+        let mut alg_manager = AlgorithmsManager::new((RollAlgrithm::new(),), signal_tx);
+        for s in symbol_rx.iter() {
+            alg_manager.update(s.0, s.1);
+        }
+    });
+    std::thread::spawn(move || {
+        for s in signal_rx.iter() {
+            info!("{:?}", s);
         }
     });
     sleep(Duration::from_secs(60));
