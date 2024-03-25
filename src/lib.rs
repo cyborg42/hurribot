@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use time::{macros::offset, OffsetDateTime};
 
 pub mod algorithm;
@@ -6,6 +5,7 @@ pub mod backtest;
 pub mod binance_futures;
 pub mod market;
 pub mod signal;
+pub mod controller;
 
 pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard {
     let file_name = file_name.to_owned() + ".log";
@@ -29,7 +29,7 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
     }
     let file_appender = tracing_appender::rolling::never("./logs", file_name);
 
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
@@ -43,13 +43,27 @@ pub fn init_log(file_name: &str) -> tracing_appender::non_blocking::WorkerGuard 
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-    _guard
+    guard
 }
 
 pub fn local_now() -> OffsetDateTime {
     OffsetDateTime::now_utc().to_offset(offset!(+8))
 }
-
+pub fn file_logger(name: &str) -> tracing_appender::non_blocking::WorkerGuard {
+    let name = if name.is_empty() {
+        "".to_string()
+    } else {
+        name.to_string() + "_"
+    };
+    let parse_str = format!(
+        "hurribot_{}[year]-[month]-[day]T[hour]:[minute]:[second]",
+        name
+    );
+    let log_name = local_now()
+        .format(&time::format_description::parse(&parse_str).unwrap())
+        .unwrap();
+    init_log(&log_name)
+}
 pub fn stdout_logger() {
     use tracing::Level;
     use tracing_subscriber::fmt::format::FmtSpan;

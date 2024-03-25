@@ -1,6 +1,6 @@
-use crate::{market::SymbolPriceInfo, signal::SignalType};
+use crate::signal::SignalType;
 
-use super::Algorithm;
+use super::{Algorithm, SymbolPriceInfo};
 
 #[derive(Debug, Clone)]
 pub struct RollAlgrithm {

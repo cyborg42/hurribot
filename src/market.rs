@@ -5,12 +5,6 @@ use anyhow::anyhow;
 
 use tracing::error;
 
-#[derive(Debug, Clone)]
-pub struct SymbolPriceInfo {
-    pub price: f64,
-    pub update_time: u64,
-    pub funding_rate: f64,
-}
 
 #[derive(Debug)]
 pub struct SymbolStatus {

@@ -3,6 +3,7 @@ use std::{
         atomic::{AtomicBool, Ordering::Relaxed},
         Arc,
     },
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -14,8 +15,11 @@ use binance::{
         websockets::{FuturesMarket, FuturesWebSockets, FuturesWebsocketEvent},
     },
 };
+use crossbeam::channel::Receiver;
 use serde::Deserialize;
 use tracing::{error, info, warn};
+
+use crate::algorithm::SymbolPriceInfo;
 
 trait FuturesWebSocketsExt {
     fn event_loop_reconnect(&mut self, running: &AtomicBool) -> bool;
@@ -25,21 +29,21 @@ impl<'a> FuturesWebSocketsExt for FuturesWebSockets<'a> {
     fn event_loop_reconnect(&mut self, running: &AtomicBool) -> bool {
         if let Err(e) = self.event_loop(running) {
             match e.0 {
-                binance::errors::ErrorKind::Msg(err) => {
-                    if err.contains("Disconnected") || err.contains("UserDataStreamExpiredEvent") {
-                        warn!("Disconnected from binance, reconnecting...: {}", err);
+                binance::errors::ErrorKind::Msg(e) => {
+                    if e.contains("Disconnected") || e.contains("UserDataStreamExpiredEvent") {
+                        warn!("Disconnected from binance, reconnecting...: {}", e);
                         self.disconnect().ok();
                         return true;
                     }
-                    error!("Event loop error, exiting...: {:?}", err);
+                    error!("Event loop error, exiting...: {:?}", e);
                 }
-                binance::errors::ErrorKind::Tungstenite(err) => {
-                    warn!("Connection error, reconnecting...: {}", err);
+                binance::errors::ErrorKind::Tungstenite(e) => {
+                    warn!("Connection error, reconnecting...: {}", e);
                     self.disconnect().ok();
                     return true;
                 }
-                err => {
-                    error!("Unexpected error, exiting...: {}", err);
+                e => {
+                    error!("Unexpected error, exiting...: {}", e);
                 }
             }
         }
@@ -72,13 +76,49 @@ pub enum FuturesWsConnection {
     UserData(BinanceConfig),
 }
 impl FuturesWsConnection {
-    pub fn run<F>(&self, mut handler: F, running: Arc<AtomicBool>)
+    pub fn run_price_info() -> (Receiver<(String, SymbolPriceInfo)>, JoinHandle<()>) {
+        let (price_tx, price_rx) = crossbeam::channel::unbounded();
+        let running = Arc::new(AtomicBool::new(true));
+        let handler = move |event: FuturesWebsocketEvent| {
+            match event {
+                FuturesWebsocketEvent::MarkPriceAll(v) => {
+                    v.into_iter().for_each(|p| {
+                        let s = SymbolPriceInfo {
+                            price: p.mark_price.parse().unwrap_or_default(),
+                            update_time: p.event_time,
+                            funding_rate: p.funding_rate.parse().unwrap_or_default(),
+                        };
+                        price_tx.send((p.symbol, s)).unwrap();
+                    });
+                }
+                _ => {}
+            }
+            Ok(())
+        };
+        let subscribes = vec!["!markPrice@arr".to_string()];
+        let conn = FuturesWsConnection::MarketData(subscribes);
+        let h = conn.run(handler, running.clone());
+        (price_rx, h)
+    }
+    pub fn run_account_info(
+        binance_config: BinanceConfig,
+    ) -> (Receiver<FuturesWebsocketEvent>, JoinHandle<()>) {
+        let (account_tx, account_rx) = crossbeam::channel::unbounded();
+        let running = Arc::new(AtomicBool::new(true));
+        let handler = move |event: FuturesWebsocketEvent| {
+            account_tx.send(event).unwrap();
+            Ok(())
+        };
+        let conn = FuturesWsConnection::UserData(binance_config);
+        let h = conn.run(handler, running.clone());
+        (account_rx, h)
+    }
+    pub fn run<F>(self, mut handler: F, running: Arc<AtomicBool>) -> JoinHandle<()>
     where
         F: FnMut(FuturesWebsocketEvent) -> binance::errors::Result<()> + Send + 'static,
     {
-        let c = self.clone();
         std::thread::spawn(move || {
-            match c {
+            match self {
                 Self::MarketData(sub) => {
                     let mut futures_ws = FuturesWebSockets::new(handler);
                     loop {
@@ -143,7 +183,7 @@ impl FuturesWsConnection {
                 }
             };
             running.store(false, Relaxed);
-        });
+        })
     }
 }
 
@@ -191,12 +231,8 @@ impl core::fmt::Debug for Clients {
 
 #[cfg(test)]
 mod tests {
-    use std::thread::sleep;
-
-    use crate::stdout_logger;
-
     use super::*;
-
+    use crate::stdout_logger;
     #[test]
     fn ws() {
         use binance::futures::websockets::*;
@@ -209,8 +245,7 @@ mod tests {
         };
         let subscribes = vec!["!markPrice@arr".to_string()];
         let conn = FuturesWsConnection::MarketData(subscribes);
-        conn.run(handler, running.clone());
-        sleep(Duration::from_secs(60));
+        conn.run(handler, running.clone()).join().unwrap();
     }
     #[test]
     fn rest() {
@@ -234,13 +269,15 @@ mod tests {
         use std::sync::atomic::AtomicBool;
         stdout_logger();
         let config = BinanceConfig::value_parse("./config/binance_config.toml").unwrap();
-        let running = Arc::new(AtomicBool::new(true)); // Used to control the event loop
+        let running = Arc::new(AtomicBool::new(true));
         let handler = |event: FuturesWebsocketEvent| {
             println!("Received: {:?}", event);
             Ok(())
         };
         let conn = FuturesWsConnection::UserData(config);
-        conn.run(handler, running);
-        sleep(Duration::from_secs(60));
+        conn.run(handler, running).join().unwrap();
+        // Received: OrderTrade(OrderTradeEvent { event_type: "ORDER_TRADE_UPDATE", event_time: 1711310062035, transaction_time: 1711310062035, order: OrderUpdate { symbol: "SOLUSDT", new_client_order_id: "ios_mO5PYJzaUuK8SVCt4eQL", side: "BUY", order_type: "MARKET", time_in_force: "GTC", qty: "1", price: "0", average_price: "0", stop_price: "0", execution_type: "NEW", order_status: "NEW", order_id: 45348952648, qty_last_filled_trade: "0", accumulated_qty_filled_trades: "0", price_last_filled_trade: "0", asset_commisioned: None, commission: Some("0"), trade_order_time: 1711310062035, trade_id: 0, bids_notional: "0", ask_notional: "0", is_buyer_maker: false, is_reduce_only: false, stop_price_working_type: "CONTRACT_PRICE", original_order_type: "MARKET", position_side: "BOTH", close_all: Some(false), activation_price: None, callback_rate: None, pp_ignore: false, si_ignore: 0, ss_ignore: 0, realized_profit: "0" } })
+        // Received: AccountUpdate(AccountUpdateEvent { event_type: "ACCOUNT_UPDATE", event_time: 1711310062035, data: AccountUpdateDataEvent { reason: "ORDER", balances: [EventBalance { asset: "USDT", wallet_balance: "1091.96321610", cross_wallet_balance: "1047.81330743", balance_change: "0" }], positions: [EventPosition { symbol: "SOLUSDT", position_amount: "1", entry_price: "176.614", accumulated_realized: "-1698.49199986", unrealized_pnl: "0.00359133", margin_type: "isolated", isolated_wallet: "44.14990867", position_side: "BOTH" }] } })
+        // Received: OrderTrade(OrderTradeEvent { event_type: "ORDER_TRADE_UPDATE", event_time: 1711310062035, transaction_time: 1711310062035, order: OrderUpdate { symbol: "SOLUSDT", new_client_order_id: "ios_mO5PYJzaUuK8SVCt4eQL", side: "BUY", order_type: "MARKET", time_in_force: "GTC", qty: "1", price: "0", average_price: "176.6140", stop_price: "0", execution_type: "TRADE", order_status: "FILLED", order_id: 45348952648, qty_last_filled_trade: "1", accumulated_qty_filled_trades: "1", price_last_filled_trade: "176.6140", asset_commisioned: None, commission: Some("0.08830700"), trade_order_time: 1711310062035, trade_id: 1443769856, bids_notional: "0", ask_notional: "0", is_buyer_maker: false, is_reduce_only: false, stop_price_working_type: "CONTRACT_PRICE", original_order_type: "MARKET", position_side: "BOTH", close_all: Some(false), activation_price: None, callback_rate: None, pp_ignore: false, si_ignore: 0, ss_ignore: 0, realized_profit: "0" } })
     }
 }
