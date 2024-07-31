@@ -1,20 +1,17 @@
 use std::{
-    any::Any, sync::{atomic::AtomicI32, Arc}, thread::sleep
+    any::Any,
+    sync::{atomic::AtomicI32, Arc},
+    thread::sleep,
 };
-
 
 use dashmap::DashMap;
 use rayon::prelude::*;
 #[test]
 fn playground() {
-    let atom = AtomicI32::new(0);
-    // [0,1,2,3,4].into_par_iter().for_each(|i|{
-    //     println!("{}: {}", i, atom.load(std::sync::atomic::Ordering::Relaxed));
-    //     atom.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    //     sleep(std::time::Duration::from_secs(5));
-    //     println!("{}: {}", i, atom.load(std::sync::atomic::Ordering::Relaxed));
-    // });
-    let x: DashMap<String, String> = DashMap::new();
+    let x = [10; 10];
+    let mut i = 10;
+    i += fastrand::usize(0..10);
+    println!("{:?}", x[i]);
 }
 
 #[test]

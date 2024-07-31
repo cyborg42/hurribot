@@ -1,16 +1,14 @@
-use std::collections::HashMap;
-
 use anyhow::{anyhow, bail};
 use binance::futures::{
     account::{OrderRequest, TimeInForce},
     model::{Bracket, TransactionOrError},
 };
 use dashmap::DashMap;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     binance_futures::{BinanceKeys, Clients},
-    stdout_logger,
+    utils::truncate_step,
 };
 
 use super::{Market, MarketOrderRequest, MarketOrderReturn};
@@ -69,90 +67,88 @@ pub struct BinanceMarket {
 
 impl BinanceMarket {
     pub fn new(binance_keys: BinanceKeys, leverage: u8) -> anyhow::Result<Self> {
-        let binance_clients = Clients::new(binance_keys);
-        binance_clients
+        let clients = Clients::new(binance_keys);
+        clients
             .account
             .change_position_mode(false)
             .inspect_err(|e| {
-                error!("change position mode failed: {:?}", e.0);
+                warn!("change position mode failed: {:?}", e.0);
             })
             .ok();
-        let ex_info = binance_clients
+        let statuses = DashMap::new();
+
+        for symbol_info in clients
             .general
             .exchange_info()
-            .map_err(|e| anyhow!("get ex info failed: {:?}", e.0))?;
-        let account_info = binance_clients
-            .account
-            .account_information()
-            .map_err(|e| anyhow!("get account info failed: {:?}", e.0))?;
-        let leverage_brackets = binance_clients
-            .account
-            .leverage_brackets(None)
-            .map_err(|e| anyhow!("get leverage bracket failed: {:?}", e.0))?;
-        let mut ret = Self {
-            statuses: DashMap::new(),
-            clients: binance_clients,
-            leverage,
-        };
-        let mut map = HashMap::new();
-        for s in ex_info.symbols {
-            map.entry(s.symbol.clone()).or_insert((s, None, None));
-        }
-        for a in account_info.positions {
-            map.entry(a.symbol.clone()).and_modify(|e| e.1 = Some(a));
-        }
-        for b in leverage_brackets {
-            map.entry(b.symbol.clone())
-                .and_modify(|e| e.2 = Some(b.brackets));
-        }
-
-        for (symbol, (symbol_info, position, brackets)) in map {
+            .map_err(|e| anyhow!("get ex info failed: {:?}", e.0))?
+            .symbols
+        {
+            let symbol = symbol_info.symbol.clone();
             let mut status = BinanceSymbolStatus::default();
             status.update_market_info(symbol_info);
-
-            if let Some(p) = position {
-                if !p.isolated {
-                    ret.clients
-                        .account
-                        .change_margin_type(&symbol, true)
-                        .map_err(|e| {
-                            anyhow!("Symbol {} change margin type failed: {:?}", symbol, e.0)
-                        })?;
-                }
-                let l: u8 = p.leverage.parse()?;
-                if l != ret.leverage {
-                    ret.clients
-                        .account
-                        .change_initial_leverage(&symbol, ret.leverage)
-                        .map_err(|e| {
-                            anyhow!("Symbol {} change leverage failed: {:?}", symbol, e.0)
-                        })?;
-                }
-            } else {
-                error!("Symbol {} position not found", symbol);
-                continue;
-            }
-            if let Some(b) = brackets {
-                status.brackets = b;
-            } else {
-                error!("Symbol {} brackets not found", symbol);
-                continue;
-            }
-            ret.statuses.insert(symbol, status);
+            statuses.insert(symbol, status);
         }
-        Ok(ret)
+
+        for position in clients
+            .account
+            .account_information()
+            .map_err(|e| anyhow!("get account info failed: {:?}", e.0))?
+            .positions
+        {
+            let symbol = position.symbol.clone();
+            if !position.isolated {
+                clients
+                    .account
+                    .change_margin_type(&symbol, true)
+                    .map_err(|e| {
+                        anyhow!("Symbol {} change margin type failed: {:?}", symbol, e.0)
+                    })?;
+            }
+            let l: u8 = position.leverage.parse()?;
+            if l != leverage {
+                clients
+                    .account
+                    .change_initial_leverage(&symbol, leverage)
+                    .map_err(|e| anyhow!("Symbol {} change leverage failed: {:?}", symbol, e.0))?;
+            }
+        }
+
+        for brackets in clients
+            .account
+            .leverage_brackets(None)
+            .map_err(|e| anyhow!("get leverage bracket failed: {:?}", e.0))?
+        {
+            statuses
+                .entry(brackets.symbol.clone())
+                .and_modify(|s| s.brackets = brackets.brackets);
+        }
+
+        statuses.retain(|symbol, status| {
+            let is_empty = status.brackets.is_empty();
+            if is_empty {
+                error!("Symbol {} brackets is empty", symbol);
+            }
+            !is_empty
+        });
+        Ok(Self {
+            statuses,
+            clients,
+            leverage,
+        })
     }
-    pub fn update_symbol_status(&self, symbol: &str, is_force: bool) -> anyhow::Result<()> {
-        if self.statuses.contains_key(symbol) && !is_force {
+    pub fn update_symbol_status(&self, symbol: &str, is_forced: bool) -> anyhow::Result<()> {
+        if self.statuses.contains_key(symbol) && !is_forced {
             return Ok(());
         }
         let mut status = BinanceSymbolStatus::default();
+
         let symbol_info = self
             .clients
             .general
             .get_symbol_info(symbol)
             .map_err(|e| anyhow!("get symbol info failed: {:?}", e.0))?;
         status.update_market_info(symbol_info);
+
         let position = self
             .clients
             .account
@@ -175,7 +171,8 @@ impl BinanceMarket {
                 .change_initial_leverage(symbol, self.leverage)
                 .map_err(|e| anyhow!("Symbol {} change leverage failed: {:?}", symbol, e.0))?;
         }
-        let brackets = self
+
+        status.brackets = self
             .clients
             .account
             .leverage_brackets(Some(symbol.to_string()))
@@ -183,7 +180,6 @@ impl BinanceMarket {
             .pop()
             .ok_or(anyhow!("brackets not found"))?
             .brackets;
-        status.brackets = brackets;
 
         self.statuses.insert(symbol.to_string(), status);
         Ok(())
@@ -198,6 +194,7 @@ impl Market for BinanceMarket {
             .map_err(|e| anyhow!("cancel all open orders failed: {:?}", e.0))?;
         Ok(())
     }
+
     fn close_position(&self, symbol: &str) -> anyhow::Result<()> {
         self.clear_orders(symbol)?;
         let position = self
@@ -223,6 +220,7 @@ impl Market for BinanceMarket {
         }
         Ok(())
     }
+
     fn order(&self, request: MarketOrderRequest) -> anyhow::Result<MarketOrderReturn> {
         let symbol = request.symbol.clone();
         let position_risk = self
@@ -247,7 +245,7 @@ impl Market for BinanceMarket {
             .get_price(&symbol)
             .map_err(|e| anyhow!("get price failed: {:?}", e.0))?
             .price;
-        let qty = truncate(request.value / price, status.min_qty_step);
+        let qty = truncate_step(request.value / price, status.min_qty_step);
         let executed_value = qty * price;
         if qty < status.min_qty {
             bail!("qty too small");
@@ -255,8 +253,8 @@ impl Market for BinanceMarket {
         if executed_value < status.min_notional {
             bail!("min notional not satisfied");
         }
-        let low_price = truncate(price * request.low_limit, status.tick_size);
-        let high_price = truncate(price * request.high_limit, status.tick_size);
+        let low_price = truncate_step(price * request.low_limit, status.tick_size);
+        let high_price = truncate_step(price * request.high_limit, status.tick_size);
         let bracket = status
             .brackets
             .iter()
@@ -311,13 +309,9 @@ impl Market for BinanceMarket {
     }
 }
 
-fn truncate(value: f64, step: f64) -> f64 {
-    (value / step).trunc() * step
-}
-
 #[test]
 fn market_test() {
-    stdout_logger();
+    crate::utils::stdout_logger();
     let binance_keys = BinanceKeys::value_parse("./config/binance_keys.toml").unwrap();
     let market = BinanceMarket::new(binance_keys, 20);
     println!("{:?}", market);

@@ -1,10 +1,13 @@
-use crate::{algorithm::Signal, controller::Order};
+use std::fmt::Debug;
+
+
+use crate::{algorithm::{ SymbolPrice}, controller::Order};
 
 pub mod roll;
 
-pub trait Strategy:std::fmt::Debug+ Send + Sync {
+pub trait Strategy: Debug + Send + Sync {
     fn notify(&self, order_return: StrategyOrderReturn);
-    fn update(&self, signal: &Signal) -> Option<StrategyOrderRequest>;
+    fn update(&self, price: &SymbolPrice) -> Option<StrategyOrderRequest>;
 }
 
 pub struct StrategyOrderReturn {

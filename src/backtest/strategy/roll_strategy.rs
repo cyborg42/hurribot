@@ -225,8 +225,8 @@ impl RollJudge {
 
 #[test]
 fn roll_once_test() {
-    use crate::init_log;
-    use crate::local_now;
+    use crate::utils::init_log;
+    use crate::utils::local_now;
     use time::Duration;
     use time::OffsetDateTime;
     use time::{Date, Time};
@@ -273,8 +273,8 @@ fn roll_once_test() {
 
 #[test]
 fn roll_bull_finder() {
-    use crate::init_log;
-    use crate::local_now;
+    use crate::utils::init_log;
+    use crate::utils::local_now;
     use time::Duration;
 
     let log_name = local_now()

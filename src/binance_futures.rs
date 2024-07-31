@@ -65,7 +65,6 @@ impl BinanceKeys {
         Ok(val)
     }
 }
-
 opaque_debug::implement!(BinanceKeys);
 
 #[derive(Clone, Debug)]
@@ -75,7 +74,7 @@ pub enum FuturesWsConnection {
 }
 impl FuturesWsConnection {
     pub fn run_price_info() -> (
-        Receiver<(String, SymbolPrice)>,
+        Receiver<SymbolPrice>,
         Arc<DashMap<String, SymbolPrice>>,
         JoinHandle<()>,
     ) {
@@ -95,13 +94,14 @@ impl FuturesWsConnection {
                         .map(|s| s.parse().unwrap_or_default())
                         .unwrap_or(mark_price);
                     let s = SymbolPrice {
+                        symbol: p.symbol.clone(),
                         mark_price,
                         price_index,
                         time: p.event_time,
                         funding_rate: p.funding_rate.parse().unwrap_or_default(),
                     };
                     prices_c.insert(p.symbol.clone(), s.clone());
-                    price_tx.send((p.symbol, s)).unwrap();
+                    price_tx.send(s).unwrap();
                 });
             }
             Ok(())
@@ -111,9 +111,7 @@ impl FuturesWsConnection {
         let h = conn.run(handler, running.clone());
         (price_rx, prices, h)
     }
-    pub fn run_account_info(
-        binance_keys: BinanceKeys,
-    ) -> (Receiver<AccountInfo>, JoinHandle<()>) {
+    pub fn run_account_info(binance_keys: BinanceKeys) -> (Receiver<AccountInfo>, JoinHandle<()>) {
         let (account_tx, account_rx) = crossbeam::channel::unbounded();
         let running = Arc::new(AtomicBool::new(true));
         let handler = move |event: FuturesWebsocketEvent| {
@@ -222,7 +220,7 @@ pub struct Clients {
 }
 impl Clients {
     pub fn new(keys: BinanceKeys) -> Self {
-        let config = Config{
+        let config = Config {
             recv_window: 10000,
             ..Default::default()
         };
@@ -248,13 +246,12 @@ impl Clients {
         }
     }
 }
-
 opaque_debug::implement!(Clients);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stdout_logger;
+    use crate::utils::stdout_logger;
     #[test]
     fn ws() {
         // TODO: 测试指定价格穿透频率

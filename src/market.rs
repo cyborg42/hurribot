@@ -8,27 +8,6 @@ use rayon::{
 pub mod binance_market;
 
 pub trait Market: std::fmt::Debug + Send + Sync + 'static {
-    fn run(self, request_rx: Receiver<MarketRequest>, result_tx: Sender<MarketResult>)
-    where
-        Self: Sized,
-    {
-        std::thread::spawn(move || {
-            request_rx.iter().par_bridge().for_each(|req| {
-                match req {
-                    MarketRequest::ClearOrders(symbol) => {
-                        let _ = self.clear_orders(&symbol);
-                    }
-                    MarketRequest::ClosePosition(symbol) => {
-                        let _ = self.close_position(&symbol);
-                    }
-                    MarketRequest::Order(request) => {
-                        let _ = self.order(request);
-                    }
-                }
-                result_tx.send(MarketResult {}).unwrap();
-            });
-        });
-    }
     fn clear_orders(&self, symbol: &str) -> anyhow::Result<()>;
     fn close_position(&self, symbol: &str) -> anyhow::Result<()>;
     fn order(&self, request: MarketOrderRequest) -> anyhow::Result<MarketOrderReturn>;

@@ -1,8 +1,13 @@
 use std::{
-    any::Any, collections::HashMap, sync::{
+    any::Any,
+    collections::HashMap,
+    fmt::Debug,
+    sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
-    }, thread::JoinHandle
+    },
+    thread::{sleep, JoinHandle},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Ok};
@@ -14,16 +19,16 @@ use rayon::{prelude::*, Scope};
 use tracing::error;
 
 use crate::{
-    algorithm::{Signal, SymbolPrice},
-    market::{Market, MarketOrderRequest, MarketRequest},
+    algorithm::{ SymbolPrice},
+    market::{Market, MarketOrderRequest},
     strategy::{Strategy, StrategyOrderReturn},
 };
 
 #[derive(Debug)]
-struct Controller {
-    market: Box<dyn Market>,
+struct Controller<M> {
+    market: M,
     strategies: Vec<Box<dyn Strategy>>,
-    prices: Arc<DashMap<String, SymbolPrice>>,
+    // prices: Arc<DashMap<String, SymbolPrice>>,
     total_balance: Mutex<f64>,
     cross_balance: Mutex<f64>,
     open_orders: DashMap<u64, Order>,
@@ -31,25 +36,32 @@ struct Controller {
     update_time: AtomicU64,
 }
 
-impl Controller {
-    fn run(self, signal_rx: Receiver<Signal>, account_rx: Receiver<AccountInfo>) -> JoinHandle<()> {
+impl<M: Market> Controller<M> {
+    fn run(
+        self,
+        signal_rx: Receiver<SymbolPrice>,
+        account_rx: Receiver<AccountInfo>,
+    ) -> JoinHandle<()> {
         std::thread::spawn(move || {
-            rayon::scope(|s| {
-                s.spawn(|s| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(4)
+                .use_current_thread()
+                .build()
+                .unwrap()
+                .scope(|s| loop {
                     crossbeam::channel::select! {
                         recv(signal_rx) -> signal => {
-                            self.input_signal(signal.unwrap(), s);
+                            s.spawn(|_| self.input_signal(signal.unwrap()));
                         }
                         recv(account_rx) -> account_info => {
-                            self.update_account(account_info.unwrap());
+                            s.spawn(|_| self.update_account(account_info.unwrap()));
                         }
                     }
-                });
-            })
+                })
         })
     }
 
-    fn input_signal<'a>(&'a self, signal: Signal, s: &Scope<'a>) {
+    fn input_signal(&self, signal: SymbolPrice) {
         for strategy in self.strategies.iter() {
             if let Some(order_request) = strategy.update(&signal) {
                 let market_order_request = MarketOrderRequest::new(
@@ -60,10 +72,8 @@ impl Controller {
                     order_request.take_profit,
                 )
                 .unwrap();
-                
-                s.spawn(|_| {
-                    self.market.order(market_order_request);
-                });
+
+                self.market.order(market_order_request);
                 // send order request to exchange
             }
         }
